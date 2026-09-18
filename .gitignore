@@ -1,0 +1,21 @@
+# secrets — Jev key, Cognigy API key, project ids
+.env
+.env.*
+!.env.example
+
+# node
+node_modules/
+dist/
+
+# local data: pulled transcripts and scoring runs
+data/
+logs/
+*.log
+
+# macos
+.DS_Store
+
+# internal working records — these live in the Obsidian vault, not in the
+# published repository: they carry environment details and transcript excerpts
+Tasks/
+*-Features.md

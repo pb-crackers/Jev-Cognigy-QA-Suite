@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jev Cognigy QA</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="card app">
+  <header class="bar">
+    <span class="brand">Jev Cognigy QA</span>
+    <nav class="tabs" id="tabs">
+      <button class="tab on" data-view="run" type="button">Run</button>
+      <button class="tab" data-view="rubrics" type="button">Rubrics</button>
+      <button class="tab" data-view="results" type="button">Results</button>
+    </nav>
+    <span class="env" id="env"></span>
+  </header>
+
+  <!-- Run -->
+  <section class="body view" id="view-run">
+    <div class="grid">
+      <div class="f"><label for="project">Project</label><select class="ctl" id="project"></select></div>
+      <div class="f"><label for="endpoint">Endpoint</label><select class="ctl" id="endpoint"></select></div>
+      <div class="f"><label for="from">From</label><input class="ctl" id="from" type="date"></div>
+      <div class="f"><label for="to">To</label><input class="ctl" id="to" type="date"></div>
+    </div>
+    <div class="grid" style="margin-top:12px">
+      <div class="f"><label for="limit">Max sessions</label><input class="ctl" id="limit" type="number" min="1" max="500" value="25"></div>
+      <div class="f"><label for="skip">Skip already scored</label>
+        <select class="ctl" id="skip"><option value="yes">Yes</option><option value="no">No</option></select></div>
+    </div>
+    <div class="rowend">
+      <span class="hint" id="preview">Choose a project to see how many sessions match.</span>
+      <span><button class="btn ghost" id="btn-preview" type="button">Preview</button>
+        <button class="btn" id="btn-run" type="button" disabled>Score sessions</button></span>
+    </div>
+    <div id="progress" hidden>
+      <div class="prog"><i id="progress-bar"></i></div>
+      <span class="hint" id="progress-text"></span>
+    </div>
+    <div id="run-error"></div>
+  </section>
+
+  <!-- Rubrics -->
+  <section class="body view" id="view-rubrics" hidden>
+    <div class="section-head">
+      <h2 id="rubric-count">Rubrics</h2>
+      <div class="section-actions">
+        <span class="hint" id="rubric-hint"></span>
+        <button class="btn" id="btn-new-rubric" type="button">New rubric</button>
+      </div>
+    </div>
+    <table id="rubric-table">
+      <thead><tr><th>Rubric</th><th>Type</th><th class="n">Weight</th></tr></thead>
+      <tbody id="rubric-rows"></tbody>
+    </table>
+  </section>
+
+  <!-- Results -->
+  <section class="view" id="view-results" hidden>
+    <div class="weights-head">
+      <div class="weights-title">
+        <h2>Scoring weights</h2>
+        <button class="info" id="btn-weights-info" type="button"
+          aria-label="What do these do?" aria-expanded="false">i</button>
+      </div>
+      <select class="ctl" id="run-select"></select>
+    </div>
+    <p class="help weights-info" id="weights-info" hidden>
+      Each rubric was scored once, when the batch ran. These sliders set how much each one
+      counts toward the <b>Overall</b> column, and the table re-ranks as you move them.
+      Nothing is re-scored and no request is sent, so you can change your mind about what
+      matters without paying for it again. Set a rubric to <b>0</b> to report it but leave
+      it out of the overall score.
+    </p>
+    <div class="weights" id="weights"></div>
+    <div class="body">
+      <div id="results-table"></div>
+      <div class="rowend">
+        <span class="hint" id="results-foot"></span>
+        <span class="results-actions">
+          <span class="hint" id="results-meta"></span>
+          <button class="btn ghost" id="btn-copy-brief" type="button">Copy briefing</button>
+          <button class="btn" id="btn-download-brief" type="button">Download briefing</button>
+        </span>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer wide" id="session-drawer" aria-label="Session detail">
+  <header class="drawer-head">
+    <h2 id="session-meta"></h2>
+    <button class="btn rm close" id="btn-close-session" type="button" title="Close">&times;</button>
+  </header>
+  <div class="split session-split">
+    <div class="tx" id="session-transcript"></div>
+    <div class="rub">
+      <div class="rub-head">
+        <h3>Scores</h3>
+        <button class="info" id="btn-scores-info" type="button"
+          aria-label="What do these numbers mean?" aria-expanded="false">i</button>
+      </div>
+      <p class="help" id="scores-info" hidden>
+        Each rubric was answered independently against this transcript.
+        <b>Yes/no</b> rubrics report a probability &mdash; 0.99 is a confident yes, 0.04 a
+        confident no, and anything near 0.50 means the model could not tell.
+        <b>Score</b> and <b>option</b> rubrics report their answer plus a separate
+        <b>confidence</b>, which reflects how concentrated the model&rsquo;s distribution was.
+        Low confidence is not a bad score &mdash; it usually means this conversation did not
+        contain enough to judge, and the session is flagged for a human to read.
+      </p>
+      <div id="session-rubrics"></div>
+    </div>
+  </div>
+</aside>
+
+<aside class="drawer" id="drawer" aria-label="Rubric editor">
+  <header class="drawer-head">
+    <h2 id="editor-title">Edit rubric</h2>
+    <button class="btn rm close" id="btn-close-drawer" type="button" title="Close">&times;</button>
+  </header>
+  <form class="editor" id="rubric-form">
+    <div class="f"><label for="r-name">Name</label>
+      <input class="ctl" id="r-name" placeholder="Short name shown in the results table" required></div>
+
+    <div class="f"><label for="r-question">Question put to the model</label>
+      <textarea class="ctl" id="r-question" rows="2"
+        placeholder="Did the customer&rsquo;s actual problem get resolved?"></textarea>
+      <p class="help">Ask about something observable in the transcript. A question the model
+        can answer the same way twice scores far better than a vague one.</p></div>
+
+    <div class="f"><label for="r-type">Answer type</label><select class="ctl" id="r-type">
+      <option value="boolean">True / false</option><option value="score">Score</option>
+      <option value="choice">One of several options</option></select></div>
+
+    <div id="type-boolean" class="type-fields">
+      <div class="grid two">
+        <div class="f"><label for="r-true">A &ldquo;true&rdquo; answer means</label>
+          <textarea class="ctl" id="r-true" rows="2"
+            placeholder="Went off-task or invented policy"></textarea></div>
+        <div class="f"><label for="r-false">A &ldquo;false&rdquo; answer means</label>
+          <textarea class="ctl" id="r-false" rows="2"
+            placeholder="Stayed within its instructions"></textarea></div>
+      </div>
+      <p class="help">Optional, but worth writing whenever a reasonable person could read the
+        question two ways. It is where you pin down the boundary.</p>
+    </div>
+
+    <div id="type-score" class="type-fields" hidden>
+      <label>Levels</label>
+      <p class="help">The model places the conversation on this scale. List them worst first &mdash;
+        level 0 is the bottom of the scale.</p>
+      <div class="rows" id="levels-list"></div>
+      <button class="btn ghost small" id="add-level" type="button">Add level</button>
+    </div>
+
+    <div id="type-choice" class="type-fields" hidden>
+      <label>Options</label>
+      <p class="help">The model picks exactly one of these per conversation.
+        <b>Counts as</b> is how much that outcome contributes to the overall score:
+        <b>1</b> for the best outcome, <b>0</b> for the worst, anything between for partial.</p>
+      <div class="rows head" id="options-head">
+        <span>Option</span><span>What it means</span><span>Counts as</span><span>Remove</span>
+      </div>
+      <div class="rows" id="options-list"></div>
+      <button class="btn ghost small" id="add-option" type="button">Add option</button>
+    </div>
+
+    <div class="grid two">
+      <div class="f"><label for="r-weight">Weight in the overall score</label>
+        <input class="ctl" id="r-weight" type="number" min="0" max="10" step="1" value="1">
+        <p class="help">0 reports it without scoring it. Changeable later at no cost.</p></div>
+      <div class="f"><label for="r-invert">A high answer is</label><select class="ctl" id="r-invert">
+        <option value="no">Good &mdash; more is better</option>
+        <option value="yes">Bad &mdash; more is worse</option></select>
+        <p class="help">Set to <b>Bad</b> for things you are trying to catch, such as
+          straying or frustration.</p></div>
+    </div>
+
+    <div id="rubric-error"></div>
+    <div class="rowend">
+      <button class="btn ghost" id="btn-delete" type="button" hidden>Delete</button>
+      <button class="btn" type="submit">Save rubric</button>
+    </div>
+  </form>
+</aside>
+<script src="/app.js" type="module"></script>
+</body>
+</html>

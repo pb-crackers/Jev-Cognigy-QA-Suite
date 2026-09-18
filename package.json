@@ -1,0 +1,22 @@
+{
+  "name": "jev-cognigy-qa",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Score Cognigy conversation transcripts against rubrics using TypeSafe Jev.",
+  "bin": {
+    "jev-cognigy-qa": "./bin/cli.ts"
+  },
+  "scripts": {
+    "init": "node --env-file-if-exists=.env bin/cli.ts init",
+    "dev": "node --env-file-if-exists=.env bin/cli.ts",
+    "test": "node --test test/",
+    "setup": "node scripts/setup.mjs"
+  },
+  "dependencies": {
+    "@typesafe-ai/sdk": "^0.6.0"
+  },
+  "engines": {
+    "node": ">=22.6"
+  }
+}

@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jev Cognigy QA — Mockup</title>
+<!--
+  MOCKUP — approved visual target for [[automated-qa-scoring]].
+  Primary canvas: 1280px desktop. Responsive note: under 1000px the results table
+  scrolls horizontally with the session column pinned; the drill-down stacks
+  transcript above scores. No component library — these tokens are the system of record.
+
+  Colour: dataviz reference palette. Categorical slots 1-3 are used only for the
+  three rubric TYPES (true/false, score, choice), validated all-pairs in both modes.
+  Scores themselves wear text tokens, never a series colour — a meter carries the hue.
+  Status colours (warning/critical) always ship with an icon AND a text label.
+-->
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1:#fcfcfb; --plane:#f9f9f7; --ink-1:#0b0b0b; --ink-2:#52514e;
+    --ink-muted:#898781; --hairline:#e1e0d9; --border:rgba(11,11,11,.10);
+    --t-noul:#2a78d6; --t-score:#eb6834; --t-choice:#1baf7a;
+    --good:#0ca30c; --warning:#fab219; --critical:#d03b3b; --success-text:#006300;
+    --meter-track:#cde2fb; --meter-fill:#2a78d6; --term-bg:#f4f4f1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1:#1a1a19; --plane:#0d0d0d; --ink-1:#fff; --ink-2:#c3c2b7;
+      --hairline:#2c2c2a; --border:rgba(255,255,255,.10);
+      --t-noul:#3987e5; --t-score:#d95926; --t-choice:#199e70;
+      --success-text:#0ca30c; --meter-track:#184f95; --meter-fill:#3987e5; --term-bg:#111110;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1:#1a1a19; --plane:#0d0d0d; --ink-1:#fff; --ink-2:#c3c2b7;
+    --hairline:#2c2c2a; --border:rgba(255,255,255,.10);
+    --t-noul:#3987e5; --t-score:#d95926; --t-choice:#199e70;
+    --success-text:#0ca30c; --meter-track:#184f95; --meter-fill:#3987e5; --term-bg:#111110;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:28px 16px 80px;background:var(--plane);color:var(--ink-1);
+       font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{max-width:1280px;margin:0 auto}
+  h1{font-size:20px;font-weight:600;margin:0 0 4px}
+  .sub{color:var(--ink-2);margin:0 0 28px;font-size:13px}
+  .lbl{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+       color:var(--ink-muted);margin:38px 0 8px;display:flex;gap:10px;align-items:baseline}
+  .lbl .n{font-weight:400;letter-spacing:0;text-transform:none;font-size:12px}
+  .card{background:var(--surface-1);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+
+  /* terminal */
+  pre.term{margin:0;padding:16px 18px;background:var(--term-bg);border-radius:10px;
+           border:1px solid var(--border);font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;
+           color:var(--ink-1);overflow-x:auto;white-space:pre}
+  .term .ok{color:var(--success-text);font-weight:600}
+  .term .no{color:var(--critical);font-weight:600}
+  .term .dim{color:var(--ink-muted)}
+  .term .q{color:var(--t-noul);font-weight:600}
+
+  /* chrome */
+  .bar{display:flex;align-items:center;gap:18px;padding:0 18px;border-bottom:1px solid var(--hairline)}
+  .brand{font-weight:600;font-size:13px;padding:13px 0;margin-right:4px}
+  .tabs{display:flex;gap:2px;flex:1}
+  .tab{padding:13px 12px;font-size:13px;color:var(--ink-2);border-bottom:2px solid transparent;cursor:pointer}
+  .tab.on{color:var(--ink-1);font-weight:600;border-bottom-color:var(--t-noul)}
+  .env{font-size:11.5px;color:var(--ink-muted)}
+  .body{padding:18px}
+
+  /* forms */
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .f label{display:block;font-size:11px;font-weight:600;letter-spacing:.05em;
+           text-transform:uppercase;color:var(--ink-muted);margin-bottom:4px}
+  .ctl{width:100%;padding:8px 11px;border:1px solid var(--hairline);border-radius:7px;
+       background:var(--surface-1);color:var(--ink-1);font:inherit;font-size:13px}
+  .ctl.sel::after{content:"▾"}
+  .btn{padding:9px 16px;border-radius:8px;border:0;background:var(--t-noul);color:#fff;
+       font:inherit;font-weight:600;font-size:13px;cursor:pointer}
+  .btn.ghost{background:transparent;color:var(--ink-2);border:1px solid var(--hairline)}
+  .btn[disabled]{opacity:.5}
+  .rowend{display:flex;justify-content:space-between;align-items:center;margin-top:16px;
+          padding-top:14px;border-top:1px solid var(--hairline)}
+  .hint{font-size:12.5px;color:var(--ink-2)}
+  .hint b{color:var(--ink-1)}
+
+  /* type pills */
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;
+        letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:5px;
+        border:1px solid var(--border);color:var(--ink-2)}
+  .pill .sw{width:7px;height:7px;border-radius:2px;flex:none}
+  .sw.noul{background:var(--t-noul)}.sw.score{background:var(--t-score)}.sw.choice{background:var(--t-choice)}
+
+  /* tables */
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;font-weight:600;color:var(--ink-muted);font-size:10.5px;
+     letter-spacing:.05em;text-transform:uppercase;padding:0 8px 7px 0;white-space:nowrap}
+  /* keep a gutter: right-aligned numeric cells otherwise collide with the next column */
+  th.n,td.n{text-align:right;font-variant-numeric:tabular-nums;padding-right:14px;padding-left:10px}
+  th:last-child,td:last-child{padding-right:0}
+  td{padding:8px 8px 8px 0;border-top:1px solid var(--hairline);vertical-align:middle}
+  tr.click{cursor:pointer}
+  tr.click:hover td{background:rgba(42,120,214,.05)}
+  .sid{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+  .meter{display:flex;align-items:center;gap:7px;justify-content:flex-end}
+  .track{width:46px;height:6px;border-radius:3px;background:var(--meter-track);overflow:hidden;flex:none}
+  .fill{height:100%;background:var(--meter-fill);border-radius:3px;min-width:3px}
+  .flag{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--warning)}
+  .flagc{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--critical)}
+
+  /* weights */
+  .weights{display:flex;gap:18px;flex-wrap:wrap;padding:12px 18px;background:var(--surface-1);
+           border-bottom:1px solid var(--hairline);align-items:center}
+  .w{display:flex;flex-direction:column;gap:3px;min-width:104px}
+  .w .wl{font-size:10.5px;color:var(--ink-muted);display:flex;justify-content:space-between;gap:8px}
+  .wbar{height:5px;border-radius:3px;background:var(--meter-track);overflow:hidden}
+  .wbar i{display:block;height:100%;background:var(--meter-fill)}
+  .wnote{font-size:11px;color:var(--ink-muted);margin-left:auto;max-width:210px;text-align:right}
+
+  /* drill-down */
+  .split{display:grid;grid-template-columns:1fr 340px}
+  .tx{padding:16px 18px;border-right:1px solid var(--hairline);max-height:340px;overflow-y:auto}
+  .turn{display:flex;gap:9px;margin-bottom:10px;font-size:12.5px}
+  .who{flex:none;width:38px;font-size:10.5px;font-weight:600;letter-spacing:.04em;
+       text-transform:uppercase;color:var(--ink-muted);padding-top:2px}
+  .turn.bot .who{color:var(--t-noul)}
+  .rub{padding:16px 18px}
+  .r{padding:9px 0;border-top:1px solid var(--hairline)}
+  .r:first-child{border-top:0;padding-top:0}
+  .rh{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .rn{font-size:12.5px}
+  .rv{font-weight:600;font-variant-numeric:tabular-nums;font-size:13px}
+  .rd{font-size:11px;color:var(--ink-muted);margin-top:2px}
+
+  /* calibration */
+  .cal{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  .cx{border:1px solid var(--border);border-radius:9px;padding:14px}
+  .cxh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+  .cxt{font-weight:600;font-size:13px}
+  .agree{font-variant-numeric:tabular-nums;font-weight:600}
+  .mx{width:100%;font-size:12px;border-collapse:collapse}
+  .mx td,.mx th{border:1px solid var(--hairline);padding:5px 8px;text-align:center}
+  .mx th{background:transparent;text-transform:none;letter-spacing:0;font-size:11px}
+  .mx td.hit{background:rgba(12,163,12,.10);font-weight:600}
+  .mx td.miss{background:rgba(208,59,59,.10);font-weight:600}
+  .warnbox{display:flex;gap:7px;align-items:flex-start;margin-top:10px;font-size:11.5px;
+           color:var(--ink-2);padding-top:9px;border-top:1px solid var(--hairline)}
+
+  .empty{padding:56px 24px;text-align:center;color:var(--ink-muted)}
+  .empty strong{display:block;color:var(--ink-2);font-size:14px;margin-bottom:4px}
+  .err{display:flex;gap:9px;padding:11px 13px;border-radius:8px;font-size:12.5px;align-items:flex-start;
+       border:1px solid var(--critical);color:var(--ink-1);margin-bottom:10px}
+  .err.warn{border-color:var(--warning)}
+  .err .ic{font-weight:700}
+  .prog{height:6px;border-radius:3px;background:var(--meter-track);overflow:hidden;margin:12px 0 8px}
+  .prog i{display:block;height:100%;background:var(--meter-fill)}
+</style>
+</head>
+<body><div class="wrap">
+<h1>Jev Cognigy QA</h1>
+<p class="sub">Approved visual target. Primary canvas 1280px.</p>
+
+<!-- ─────────── CLI ─────────── -->
+<div class="lbl">A — CLI first run <span class="n">credentials captured and actually verified</span></div>
+<pre class="term">$ npx jev-cognigy-qa init
+
+  <span class="dim">No configuration found. Let's set one up.</span>
+
+  <span class="q">TypeSafe API key</span> ········································
+    <span class="ok">✓</span> jev-1.13.0 reachable <span class="dim">· 412ms</span>
+
+  <span class="q">Cognigy API base</span>   https://api-trial-us.cognigy.ai
+  <span class="q">Cognigy API key</span>    ········································
+    <span class="ok">✓</span> authenticated <span class="dim">· 3 projects visible</span>
+
+  <span class="q">OData base</span>         https://odata-trial.cognigy.ai/v2.4
+    <span class="ok">✓</span> Conversations readable <span class="dim">· 1,284 records in range</span>
+
+  <span class="q">Project</span>            <span class="dim">[1] Insurance Demo  [2] Retail Bot  [3] Sandbox</span>  › 1
+
+  <span class="ok">✓</span> Written to .env  <span class="dim">(gitignored)</span>
+  <span class="dim">Run</span> npx jev-cognigy-qa <span class="dim">to start.</span></pre>
+
+<div class="lbl">B — CLI, a credential that doesn't work <span class="n">fails loudly, never continues</span></div>
+<pre class="term">  <span class="q">Cognigy API key</span>    ········································
+    <span class="no">✗</span> 401 Unauthorized
+
+      The key was rejected by https://api-trial-us.cognigy.ai
+      Check that it is a <span class="dim">profile</span> API key and that your user holds the
+      <span class="dim">odata</span> global role — OData access is a separate permission.
+
+    <span class="dim">Retry, or press Ctrl-C to quit.</span></pre>
+
+<div class="lbl">C — CLI start <span class="n">opens the browser</span></div>
+<pre class="term">$ npx jev-cognigy-qa
+
+  Jev Cognigy QA <span class="dim">· project</span> Insurance Demo <span class="dim">· 8 rubrics loaded</span>
+  <span class="ok">→</span> http://localhost:4174 <span class="dim">(opening…)</span></pre>
+
+<!-- ─────────── RUN ─────────── -->
+<div class="lbl">D — Select sessions <span class="n">primary view · filter, never manual IDs</span></div>
+<div class="card">
+  <div class="bar"><span class="brand">Jev Cognigy QA</span>
+    <div class="tabs"><span class="tab on">Run</span><span class="tab">Rubrics</span><span class="tab">Results</span><span class="tab">Calibration</span></div>
+    <span class="env">Insurance Demo · trial-us</span></div>
+  <div class="body">
+    <div class="grid">
+      <div class="f"><label>Project</label><div class="ctl">Insurance Demo</div></div>
+      <div class="f"><label>Endpoint</label><div class="ctl">Webchat — Production</div></div>
+      <div class="f"><label>From</label><div class="ctl">2026-09-11</div></div>
+      <div class="f"><label>To</label><div class="ctl">2026-09-18</div></div>
+    </div>
+    <div class="grid" style="margin-top:12px">
+      <div class="f" style="grid-column:span 2"><label>Rubric set</label><div class="ctl">Default — 8 rubrics</div></div>
+      <div class="f"><label>Max sessions</label><div class="ctl">100</div></div>
+      <div class="f"><label>Skip already scored</label><div class="ctl">Yes</div></div>
+    </div>
+    <div class="rowend">
+      <span class="hint"><b>47 sessions</b> match · 6 already scored · <b>41</b> to score
+        · est. <b>$0.0043</b> · ~35s</span>
+      <span><span class="btn ghost">Preview transcripts</span> <span class="btn">Score 41 sessions</span></span>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────── RUBRICS ─────────── -->
+<div class="lbl">E — Rubric library and editor <span class="n">type maps to a Jev primitive; combine mode maps to meaning</span></div>
+<div class="card">
+  <div class="bar"><span class="brand">Jev Cognigy QA</span>
+    <div class="tabs"><span class="tab">Run</span><span class="tab on">Rubrics</span><span class="tab">Results</span><span class="tab">Calibration</span></div>
+    <span class="env">8 rubrics</span></div>
+  <div class="split" style="grid-template-columns:1fr 400px">
+    <div class="body">
+      <table>
+        <thead><tr><th>Rubric</th><th>Type</th><th>Combine</th><th class="n">Weight</th></tr></thead>
+        <tbody>
+          <tr class="click"><td><b>Customer was helped</b><div class="rd">Did the customer's actual problem get resolved?</div></td>
+              <td><span class="pill"><span class="sw noul"></span>True/false</span></td><td>Last</td><td class="n">3</td></tr>
+          <tr class="click"><td><b>Knowledge answer was relevant</b><div class="rd">Did the retrieved answer address what was asked?</div></td>
+              <td><span class="pill"><span class="sw score"></span>Score</span></td><td>Mean</td><td class="n">2</td></tr>
+          <tr class="click"><td><b>Agent strayed from instructions</b><div class="rd">Did the AI Agent do something outside its brief?</div></td>
+              <td><span class="pill"><span class="sw noul"></span>True/false</span></td><td>Any</td><td class="n">3</td></tr>
+          <tr class="click"><td><b>Handover timing</b><div class="rd">Was escalation too early, right, or too late?</div></td>
+              <td><span class="pill"><span class="sw choice"></span>Choice</span></td><td>Last</td><td class="n">1</td></tr>
+          <tr class="click"><td><b>Repeated itself</b><div class="rd">Did the agent re-ask for something already given?</div></td>
+              <td><span class="pill"><span class="sw noul"></span>True/false</span></td><td>Any</td><td class="n">2</td></tr>
+          <tr class="click"><td><b>Tone</b><div class="rd">How appropriate was the register throughout?</div></td>
+              <td><span class="pill"><span class="sw score"></span>Score</span></td><td>Mean</td><td class="n">1</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rub" style="border-left:1px solid var(--hairline)">
+      <div class="lbl" style="margin:0 0 12px">Edit rubric</div>
+      <div class="f" style="margin-bottom:10px"><label>Name</label><div class="ctl">Agent strayed from instructions</div></div>
+      <div class="f" style="margin-bottom:10px"><label>Question put to the model</label>
+        <div class="ctl" style="height:52px;padding-top:7px">Did the AI Agent do something outside the instructions it was given?</div></div>
+      <div class="grid" style="grid-template-columns:1fr 1fr;gap:10px">
+        <div class="f"><label>Type</label><div class="ctl">True / false</div></div>
+        <div class="f"><label>Combine split chunks</label><div class="ctl">Any</div></div>
+      </div>
+      <div class="rd" style="margin-top:7px">
+        <b>Any</b> — true if it happened in any part of a long transcript. Averaging would
+        hide a single breach.
+      </div>
+      <div class="f" style="margin-top:12px"><label>True means</label>
+        <div class="ctl" style="height:44px;padding-top:7px">Acted outside its brief, invented policy, or went off-task.</div></div>
+      <div class="f" style="margin-top:8px"><label>False means</label>
+        <div class="ctl" style="height:44px;padding-top:7px">Stayed within its instructions throughout.</div></div>
+      <div class="rowend"><span class="hint">Weight <b>3</b></span>
+        <span><span class="btn ghost">Delete</span> <span class="btn">Save</span></span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────── RUNNING ─────────── -->
+<div class="lbl">F — Run in progress <span class="n">live cost, honest throughput</span></div>
+<div class="card"><div class="body">
+  <div style="display:flex;justify-content:space-between;align-items:baseline">
+    <b style="font-size:15px">Scoring 41 sessions</b><span class="hint">28 of 41</span></div>
+  <div class="prog"><i style="width:68%"></i></div>
+  <span class="hint">8 rubrics per session · 1 request each · 3 transcripts split ·
+    <b>$0.0029</b> spent · 612ms avg · ~9s remaining</span>
+</div></div>
+
+<!-- ─────────── RESULTS ─────────── -->
+<div class="lbl">G — Results <span class="n">weights re-rank stored scores instantly, with no re-scoring</span></div>
+<div class="card">
+  <div class="bar"><span class="brand">Jev Cognigy QA</span>
+    <div class="tabs"><span class="tab">Run</span><span class="tab">Rubrics</span><span class="tab on">Results</span><span class="tab">Calibration</span></div>
+    <span class="env">41 sessions · 11 Sep – 18 Sep</span></div>
+  <div class="weights">
+    <div class="w"><span class="wl">Helped <b>3</b></span><div class="wbar"><i style="width:75%"></i></div></div>
+    <div class="w"><span class="wl">Knowledge <b>2</b></span><div class="wbar"><i style="width:50%"></i></div></div>
+    <div class="w"><span class="wl">Strayed <b>3</b></span><div class="wbar"><i style="width:75%"></i></div></div>
+    <div class="w"><span class="wl">Handover <b>1</b></span><div class="wbar"><i style="width:25%"></i></div></div>
+    <div class="w"><span class="wl">Repeated <b>2</b></span><div class="wbar"><i style="width:50%"></i></div></div>
+    <div class="w"><span class="wl">Tone <b>1</b></span><div class="wbar"><i style="width:25%"></i></div></div>
+    <span class="wnote">Re-ranks instantly — weights are applied to stored scores, nothing is re-scored.</span>
+  </div>
+  <div class="body">
+    <table>
+      <thead><tr><th>Session</th><th>Turns</th><th class="n">Overall</th><th class="n">Helped</th>
+        <th class="n">Knowl.</th><th class="n">Strayed</th><th class="n">Handover</th>
+        <th class="n">Repeat</th><th class="n">Tone</th><th>Review</th></tr></thead>
+      <tbody>
+        <tr class="click"><td class="sid">1b84-7741</td><td class="n">11</td>
+          <td class="n" style="padding-left:14px"><div class="meter"><div class="track"><div class="fill" style="width:94%"></div></div><span>4.7</span></div></td>
+          <td class="n">yes</td><td class="n">2.8</td><td class="n">no</td><td class="n">right</td><td class="n">no</td><td class="n">2.6</td><td></td></tr>
+        <tr class="click"><td class="sid">a3f9-22b1</td><td class="n">18</td>
+          <td class="n" style="padding-left:14px"><div class="meter"><div class="track"><div class="fill" style="width:82%"></div></div><span>4.1</span></div></td>
+          <td class="n">yes</td><td class="n">2.2</td><td class="n">no</td><td class="n">right</td><td class="n">yes</td><td class="n">1.9</td><td></td></tr>
+        <tr class="click"><td class="sid">2f05-3390</td><td class="n">34</td>
+          <td class="n" style="padding-left:14px"><div class="meter"><div class="track"><div class="fill" style="width:64%"></div></div><span>3.2</span></div></td>
+          <td class="n">yes</td><td class="n">1.8</td><td class="n">no</td><td class="n">late</td><td class="n">yes</td><td class="n">2.1</td>
+          <td><span class="flag">⚑ low confidence</span></td></tr>
+        <tr class="click"><td class="sid">c7e2-9904</td><td class="n">52</td>
+          <td class="n" style="padding-left:14px"><div class="meter"><div class="track"><div class="fill" style="width:46%"></div></div><span>2.3</span></div></td>
+          <td class="n">no</td><td class="n">1.0</td><td class="n">yes</td><td class="n">late</td><td class="n">yes</td><td class="n">1.4</td>
+          <td><span class="flagc">▲ strayed</span></td></tr>
+        <tr class="click"><td class="sid">9d21-0034</td><td class="n">7</td>
+          <td colspan="7" class="rd" style="padding-left:0">Not scoreable — transcript is masked (PII redaction)</td>
+          <td><span class="flag">⚑ skipped</span></td></tr>
+      </tbody>
+    </table>
+    <div class="rowend"><span class="hint">41 scored · 6 flagged · 1 skipped ·
+      <b>$0.0043</b> · 612ms avg · 9,820 tokens</span>
+      <span class="hint">Equivalent on Haiku 4.5 ≈ $0.11 · Sonnet 5 ≈ $0.22</span></div>
+  </div>
+</div>
+
+<!-- ─────────── DRILL ─────────── -->
+<div class="lbl">H — Session drill-down <span class="n">transcript beside the scores that came from it</span></div>
+<div class="card">
+  <div class="bar"><span class="brand">← Back to results</span>
+    <div class="tabs"></div><span class="env">c7e2-9904 · 52 turns · split into 2 chunks</span></div>
+  <div class="split">
+    <div class="tx">
+      <div class="turn"><span class="who">User</span><span>i've been trying to sort out my renewal for three days and nobody has called me back</span></div>
+      <div class="turn bot"><span class="who">Agent</span><span>I can help with your renewal. Could you give me your policy number?</span></div>
+      <div class="turn"><span class="who">User</span><span>i already gave it to the last person. AP-4471822</span></div>
+      <div class="turn bot"><span class="who">Agent</span><span>Thanks. And could you confirm your policy number?</span></div>
+      <div class="turn"><span class="who">User</span><span>i literally just gave it to you</span></div>
+      <div class="turn bot"><span class="who">Agent</span><span>I can offer you a 15% loyalty discount to stay with us.</span></div>
+      <div class="turn"><span class="who">User</span><span>that's not what i asked about at all</span></div>
+      <div class="rd" style="text-align:center;padding:8px 0">— chunk boundary —</div>
+      <div class="turn bot"><span class="who">Agent</span><span>Let me transfer you to a colleague.</span></div>
+    </div>
+    <div class="rub">
+      <div class="r"><div class="rh"><span class="rn">Customer was helped</span><span class="rv">no</span></div>
+        <div class="rd"><span class="pill"><span class="sw noul"></span>True/false</span> 0.08 · combine: last</div></div>
+      <div class="r"><div class="rh"><span class="rn">Knowledge answer relevant</span><span class="rv">1.0</span></div>
+        <div class="rd"><span class="pill"><span class="sw score"></span>Score</span> conf 0.71 · combine: mean</div></div>
+      <div class="r"><div class="rh"><span class="rn">Agent strayed</span><span class="rv">yes</span></div>
+        <div class="rd"><span class="pill"><span class="sw noul"></span>True/false</span> 0.93 · combine: any · fired in chunk 1</div></div>
+      <div class="r"><div class="rh"><span class="rn">Handover timing</span><span class="rv">late</span></div>
+        <div class="rd"><span class="pill"><span class="sw choice"></span>Choice</span> conf 0.88 · combine: last</div></div>
+      <div class="r"><div class="rh"><span class="rn">Repeated itself</span><span class="rv">yes</span></div>
+        <div class="rd"><span class="pill"><span class="sw noul"></span>True/false</span> 0.97 · combine: any</div></div>
+      <div class="r"><div class="rh"><span class="rn">Tone</span><span class="rv">1.4</span></div>
+        <div class="rd"><span class="pill"><span class="sw score"></span>Score</span> conf 0.62 · combine: mean</div></div>
+      <div class="warnbox"><span>⚑</span><span>End user rated this session <b>👎</b> — which agrees with
+        “customer was helped: no”.</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ─────────── CALIBRATION ─────────── -->
+<div class="lbl">I — Calibration <span class="n">are the rubrics themselves any good?</span></div>
+<div class="card">
+  <div class="bar"><span class="brand">Jev Cognigy QA</span>
+    <div class="tabs"><span class="tab">Run</span><span class="tab">Rubrics</span><span class="tab">Results</span><span class="tab on">Calibration</span></div>
+    <span class="env">213 rated sessions available</span></div>
+  <div class="body"><div class="cal">
+    <div class="cx">
+      <div class="cxh"><span class="cxt">Customer was helped</span><span class="agree" style="color:var(--success-text)">90.1% agree</span></div>
+      <table class="mx"><thead><tr><th></th><th>user 👍</th><th>user 👎</th></tr></thead>
+        <tbody><tr><th>rubric yes</th><td class="hit">147</td><td class="miss">12</td></tr>
+        <tr><th>rubric no</th><td class="miss">9</td><td class="hit">45</td></tr></tbody></table>
+      <div class="warnbox"><span>✓</span><span>Tracks real user sentiment closely. 12 sessions
+        the rubric called good were rated badly — worth reading those.</span></div>
+    </div>
+    <div class="cx">
+      <div class="cxh"><span class="cxt">Knowledge answer relevant</span><span class="agree" style="color:var(--critical)">61.0% agree</span></div>
+      <table class="mx"><thead><tr><th></th><th>user 👍</th><th>user 👎</th></tr></thead>
+        <tbody><tr><th>rubric high</th><td class="hit">88</td><td class="miss">49</td></tr>
+        <tr><th>rubric low</th><td class="miss">34</td><td class="hit">42</td></tr></tbody></table>
+      <div class="warnbox"><span style="color:var(--critical)">▲</span><span><b>Barely better than
+        chance.</b> This rubric is probably measuring whether an answer <i>looked</i> relevant
+        rather than whether it helped. Rewrite the question.</span></div>
+    </div>
+  </div>
+  <div class="rowend"><span class="hint">Agreement is only computed where a real end-user
+    rating exists. Not every session has one.</span></div>
+  </div>
+</div>
+
+<!-- ─────────── STATES ─────────── -->
+<div class="lbl">J — Empty and error states</div>
+<div class="card"><div class="body">
+  <div class="err"><span class="ic">▲</span><span><b>OData rejected the request — 401.</b>
+    The API key is valid for the management API but not for OData. OData needs the
+    <code>odata</code> global role, granted separately in Admin Center.</span></div>
+  <div class="err warn"><span class="ic">⚑</span><span><b>Rate limited — retrying.</b>
+    Cognigy allows 10 requests/second and 4 at once. Backing off 5s; the run will continue
+    on its own.</span></div>
+  <div class="err warn"><span class="ic">⚑</span><span><b>No sessions in that range.</b>
+    The Webchat — Production endpoint has no conversations between 11 and 18 September.
+    Analytics records are only written after a session ends.</span></div>
+</div></div>
+<div class="card" style="margin-top:12px"><div class="empty">
+  <strong>No runs yet</strong>
+  <span>Choose a project, endpoint and date range on the Run tab to score your first batch.</span>
+</div></div>
+
+</div></body></html>

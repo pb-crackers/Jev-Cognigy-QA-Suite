@@ -1,0 +1,259 @@
+/**
+ * HTTP layer. Thin by design: it validates input, delegates, and serialises.
+ *
+ * A scoring run streams progress over server-sent events, because a batch takes
+ * as long as Cognigy's rate limits allow and a progress bar that moves is worth
+ * more than a faster-looking request that blocks.
+ */
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { extname, join, normalize as normalizePath } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { CognigyApi } from './cognigy/api.ts';
+import { OdataClient } from './cognigy/odata.ts';
+import { INTERACTION_PANEL } from './cognigy/transcript.ts';
+import { llmEquivalents } from './metering.ts';
+import { DEFAULT_RUBRICS } from './rubrics/defaults.ts';
+import { inferCombine, type Rubric } from './rubrics/model.ts';
+import { executeRun, type RunProgress } from './scoring/run.ts';
+import { Store } from './store/db.ts';
+import { scoreSessions } from './store/score.ts';
+import { buildBriefing } from './briefing.ts';
+import { fromEnv, missingKeys, type Config } from './config.ts';
+
+const CONTENT_TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+};
+
+interface Deps {
+  config: Config;
+  api: CognigyApi;
+  odata: OdataClient;
+  store: Store;
+}
+
+async function readJson<T>(stream: AsyncIterable<Buffer>): Promise<T> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) chunks.push(chunk);
+  return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}') as T;
+}
+
+function isRubric(value: unknown): value is Rubric {
+  const rubric = value as Partial<Rubric>;
+  return (
+    typeof rubric?.name === 'string' &&
+    typeof rubric.question === 'string' &&
+    ['boolean', 'score', 'choice'].includes(rubric.type as string)
+  );
+}
+
+export function createApp(deps: Deps) {
+  const { api, odata, store, config } = deps;
+  const publicDir = join(import.meta.dirname, 'public');
+
+  return createServer(async (request, response) => {
+    const url = new URL(request.url ?? '/', 'http://localhost');
+    const send = (status: number, body: unknown) => {
+      response.writeHead(status, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(body));
+    };
+
+    try {
+      if (url.pathname === '/api/config') {
+        return send(200, {
+          projectId: config.projectId ?? null,
+          apiBase: config.cognigyApiBase,
+          odataBase: config.cognigyOdataBase,
+          interactionPanelLabel: INTERACTION_PANEL,
+        });
+      }
+
+      if (url.pathname === '/api/projects') {
+        return send(200, await api.projects());
+      }
+
+      if (url.pathname === '/api/endpoints') {
+        const projectId = url.searchParams.get('projectId');
+        if (!projectId) return send(400, { error: 'projectId is required' });
+        return send(200, await api.endpoints(projectId));
+      }
+
+      if (url.pathname === '/api/rubrics') {
+        if (request.method === 'GET') return send(200, store.rubrics());
+
+        if (request.method === 'POST') {
+          const body = await readJson<Partial<Rubric>>(request);
+          if (!isRubric(body)) return send(400, { error: 'Not a valid rubric' });
+          const rubric: Rubric = {
+            ...body,
+            id: body.id?.trim() || randomUUID().slice(0, 8),
+            weight: Number(body.weight ?? 1),
+            enabled: body.enabled !== false,
+            // Derived from the rubric's own shape rather than asked for.
+            combine: inferCombine(body as Rubric),
+          } as Rubric;
+          store.saveRubric(rubric);
+          return send(200, rubric);
+        }
+      }
+
+      const rubricMatch = url.pathname.match(/^\/api\/rubrics\/([\w-]+)$/);
+      if (rubricMatch && request.method === 'DELETE') {
+        store.deleteRubric(rubricMatch[1]);
+        return send(200, { deleted: rubricMatch[1] });
+      }
+
+      if (url.pathname === '/api/preview' && request.method === 'POST') {
+        const body = await readJson<{
+          projectId: string; from: string; to: string;
+          endpointName?: string | null; limit?: number; skipScored?: boolean;
+        }>(request);
+        if (!body.projectId) return send(400, { error: 'projectId is required' });
+
+        const sessions = await odata.sessions({
+          projectId: body.projectId,
+          from: body.from,
+          to: body.to,
+          endpointName: body.endpointName,
+          limit: body.limit ?? 100,
+        });
+        const seen = body.skipScored ? store.alreadyScored(body.projectId) : new Set<string>();
+        const fresh = sessions.filter((session) => !seen.has(session.sessionId));
+
+        return send(200, {
+          matched: sessions.length,
+          alreadyScored: sessions.length - fresh.length,
+          toScore: fresh.length,
+          masked: sessions.filter((session) => session.masked).length,
+          records: sessions.reduce((sum, session) => sum + session.records, 0),
+        });
+      }
+
+      if (url.pathname === '/api/run' && request.method === 'POST') {
+        const body = await readJson<{
+          projectId: string; projectName: string; from: string; to: string;
+          endpointName?: string | null; limit?: number; skipScored?: boolean;
+        }>(request);
+        if (!body.projectId) return send(400, { error: 'projectId is required' });
+
+        response.writeHead(200, {
+          'content-type': 'text/event-stream',
+          'cache-control': 'no-cache',
+          connection: 'keep-alive',
+        });
+        const event = (name: string, data: unknown) =>
+          response.write(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`);
+
+        try {
+          const { run } = await executeRun(
+            {
+              projectId: body.projectId,
+              projectName: body.projectName,
+              from: body.from,
+              to: body.to,
+              endpointName: body.endpointName,
+              limit: body.limit ?? 100,
+              skipScored: body.skipScored !== false,
+            },
+            { odata, store, rubrics: store.rubrics() },
+            (progress: RunProgress) => event('progress', progress),
+          );
+          event('done', run);
+        } catch (error) {
+          event('failed', { error: String(error) });
+        }
+        return response.end();
+      }
+
+      if (url.pathname === '/api/runs') {
+        return send(200, store.runs());
+      }
+
+      const briefMatch = url.pathname.match(/^\/api\/runs\/([\w-]+)\/briefing$/);
+      if (briefMatch) {
+        const runId = briefMatch[1];
+        const run = store.runs().find((candidate) => candidate.id === runId);
+        if (!run) return send(404, { error: 'No such run' });
+        const markdown = buildBriefing(
+          run,
+          store.sessionsForRun(runId),
+          store.resultsForRun(runId),
+          store.rubrics(),
+        );
+        response.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8' });
+        return response.end(markdown);
+      }
+
+      const runMatch = url.pathname.match(/^\/api\/runs\/([\w-]+)$/);
+      if (runMatch) {
+        const runId = runMatch[1];
+        const rubrics = store.rubrics();
+        const scored = scoreSessions(
+          store.sessionsForRun(runId),
+          store.resultsForRun(runId),
+          rubrics,
+        );
+        const run = store.runs().find((candidate) => candidate.id === runId);
+        if (!run) return send(404, { error: 'No such run' });
+
+        return send(200, {
+          run,
+          rubrics,
+          comparison: llmEquivalents(Math.round(run.costUsd / 0.042e-6)),
+          sessions: scored.map((entry) => ({
+            ...entry.session,
+            // The transcript is parsed client-side; contactId is never included.
+            composite: entry.composite ?? null,
+            flagged: entry.flagged,
+            results: Object.fromEntries(entry.results),
+          })),
+        });
+      }
+
+      if (url.pathname.startsWith('/api/')) return send(404, { error: 'No such endpoint' });
+
+      // Static files, path-traversal guarded.
+      const requested = url.pathname === '/' ? '/index.html' : url.pathname;
+      const filePath = join(publicDir, normalizePath(requested));
+      if (!filePath.startsWith(publicDir)) {
+        response.writeHead(403).end('Forbidden');
+        return;
+      }
+      const file = await readFile(filePath);
+      response.writeHead(200, {
+        'content-type': CONTENT_TYPES[extname(filePath)] ?? 'application/octet-stream',
+      });
+      response.end(file);
+    } catch (error) {
+      if ((error as { code?: string }).code === 'ENOENT') {
+        response.writeHead(404).end('Not found');
+        return;
+      }
+      console.error('[request]', url.pathname, error);
+      if (!response.headersSent) send(502, { error: String(error) });
+      else response.end();
+    }
+  });
+}
+
+export function buildDeps(): Deps {
+  const partial = fromEnv();
+  const missing = missingKeys(partial);
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing configuration: ${missing.join(', ')}. Run \`npx jev-cognigy-qa init\`.`,
+    );
+  }
+  const config = partial as Config;
+  const store = new Store();
+  store.seedRubrics(DEFAULT_RUBRICS);
+
+  return {
+    config,
+    store,
+    api: new CognigyApi(config.cognigyApiBase, config.cognigyApiKey),
+    odata: new OdataClient(config.cognigyOdataBase, config.cognigyApiKey),
+  };
+}

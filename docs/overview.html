@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Jev Cognigy QA</title>
+<style>
+  /* Baseline the artifact host normally supplies. */
+  html { color-scheme: light dark; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --paper:      #f6f8f7;
+    --surface:    #ffffff;
+    --ink:        #101a1d;
+    --ink-2:      #445357;
+    --muted:      #6d7f83;
+    --rule:       #dce3e2;
+    --rule-soft:  #e9eeed;
+    --accent:     #0d7268;
+    --accent-ink: #0a5a52;
+    --accent-wash:#e2f0ee;
+    --amber:      #9a6206;
+    --amber-wash: #fbf0dc;
+    --term-bg:    #0f1719;
+    --term-ink:   #d4dedd;
+    --term-dim:   #6f8184;
+    --term-acc:   #57c2b2;
+    --term-amb:   #d9a441;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --paper:      #0d1416;
+      --surface:    #141d1f;
+      --ink:        #e7eeec;
+      --ink-2:      #b4c2c2;
+      --muted:      #8b9c9e;
+      --rule:       #263130;
+      --rule-soft:  #1d2627;
+      --accent:     #48b8a8;
+      --accent-ink: #6fcdbf;
+      --accent-wash:#152a28;
+      --amber:      #d9a441;
+      --amber-wash: #2a2115;
+      --term-bg:    #0a1113;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper:#0d1416; --surface:#141d1f; --ink:#e7eeec; --ink-2:#b4c2c2;
+    --muted:#8b9c9e; --rule:#263130; --rule-soft:#1d2627;
+    --accent:#48b8a8; --accent-ink:#6fcdbf; --accent-wash:#152a28;
+    --amber:#d9a441; --amber-wash:#2a2115; --term-bg:#0a1113;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    font-size: 16px;
+    line-height: 1.62;
+    margin: 0;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 20px; padding-block: 0 96px; }
+
+  /* ---- masthead ---- */
+  header.top {
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface);
+  }
+  .top-inner {
+    max-width: 860px; margin: 0 auto; padding: 0 20px;
+    padding-block: 52px 40px;
+  }
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 18px;
+  }
+  h1 {
+    font-family: "IBM Plex Serif", Georgia, serif;
+    font-weight: 600; font-size: clamp(30px, 5.4vw, 42px); line-height: 1.16;
+    letter-spacing: -.015em; margin: 0 0 16px; text-wrap: balance;
+  }
+  .standfirst {
+    font-size: clamp(16px, 2.4vw, 18.5px); color: var(--ink-2);
+    margin: 0; max-width: 60ch;
+  }
+  .standfirst strong { color: var(--ink); font-weight: 600; }
+
+  /* ---- headline figures ---- */
+  .figures {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px; background: var(--rule); border: 1px solid var(--rule);
+    border-radius: 3px; overflow: hidden; margin: 34px 0 0;
+  }
+  .fig { background: var(--surface); padding: 16px 18px; }
+  .fig .v {
+    font-family: "IBM Plex Mono", monospace; font-size: 23px; font-weight: 500;
+    letter-spacing: -.02em; color: var(--ink); font-variant-numeric: tabular-nums;
+  }
+  .fig .l { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+
+  /* ---- sections ---- */
+  section { padding-block: 44px 0; }
+  h2 {
+    font-family: "IBM Plex Serif", Georgia, serif;
+    font-weight: 600; font-size: 24px; letter-spacing: -.01em;
+    margin: 0 0 6px; text-wrap: balance;
+  }
+  h2 + .sub { color: var(--muted); margin: 0 0 22px; font-size: 15px; }
+  h3 {
+    font-size: 16px; font-weight: 600; margin: 30px 0 8px; letter-spacing: -.005em;
+  }
+  p { margin: 0 0 15px; max-width: 68ch; }
+  p:last-child { margin-bottom: 0; }
+  a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  strong { font-weight: 600; }
+  code {
+    font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: .88em;
+    background: var(--rule-soft); padding: 1px 5px; border-radius: 3px;
+  }
+
+  /* ---- terminal ---- */
+  .term-wrap { overflow-x: auto; margin: 0 0 18px; border-radius: 4px; }
+  pre.term {
+    margin: 0; padding: 18px 20px; background: var(--term-bg); color: var(--term-ink);
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 13px; line-height: 1.72; white-space: pre; min-width: max-content;
+  }
+  .term .c { color: var(--term-dim); }
+  .term .g { color: var(--term-acc); }
+  .term .a { color: var(--term-amb); }
+  .term .w { color: #fff; font-weight: 500; }
+  .caption { font-size: 13px; color: var(--muted); margin: -8px 0 22px; }
+
+  /* ---- tables ---- */
+  .tbl-wrap { overflow-x: auto; margin: 0 0 20px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; min-width: 460px; }
+  th {
+    text-align: left; font-weight: 600; font-size: 12px; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--muted); padding: 0 14px 8px 0;
+    border-bottom: 1px solid var(--rule); white-space: nowrap;
+  }
+  td { padding: 10px 14px 10px 0; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums;
+               font-family: "IBM Plex Mono", monospace; padding-right: 0; }
+  tr:last-child td { border-bottom: 0; }
+
+  /* ---- steps: a real sequence, so it is numbered ---- */
+  ol.steps { list-style: none; counter-reset: s; margin: 0; padding: 0; }
+  ol.steps > li { counter-increment: s; padding-left: 44px; position: relative; margin-bottom: 26px; }
+  ol.steps > li::before {
+    content: counter(s); position: absolute; left: 0; top: 1px;
+    width: 27px; height: 27px; border-radius: 50%;
+    background: var(--accent-wash); color: var(--accent-ink);
+    font-family: "IBM Plex Mono", monospace; font-size: 13px; font-weight: 500;
+    display: grid; place-items: center;
+  }
+  ol.steps h3 { margin: 0 0 5px; }
+
+  /* ---- callout ---- */
+  .note {
+    border-left: 2px solid var(--accent); padding: 2px 0 2px 18px;
+    margin: 22px 0; color: var(--ink-2);
+  }
+  .note.warn { border-left-color: var(--amber); }
+  .note p { margin-bottom: 10px; }
+  .note strong { color: var(--ink); }
+
+  /* ---- finding cards ---- */
+  .findings { display: grid; gap: 14px; }
+  .finding {
+    background: var(--surface); border: 1px solid var(--rule);
+    border-radius: 4px; padding: 16px 18px;
+  }
+  .finding .hd { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
+  .finding .t { font-weight: 600; font-size: 15px; }
+  .finding .m {
+    font-family: "IBM Plex Mono", monospace; font-size: 14px; font-weight: 500;
+    color: var(--accent-ink); white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  .finding .m.amb { color: var(--amber); }
+  .finding p { font-size: 14.5px; color: var(--ink-2); margin: 7px 0 0; }
+  .quote {
+    font-family: "IBM Plex Mono", monospace; font-size: 13px; line-height: 1.66;
+    color: var(--ink-2); border-left: 2px solid var(--rule);
+    padding-left: 14px; margin: 12px 0 0;
+  }
+  .quote b { color: var(--ink); font-weight: 500; }
+
+  ul.plain { margin: 0 0 15px; padding-left: 20px; max-width: 68ch; }
+  ul.plain li { margin-bottom: 7px; }
+
+  footer {
+    margin-top: 56px; padding-top: 22px; border-top: 1px solid var(--rule);
+    font-size: 13.5px; color: var(--muted);
+  }
+
+  /* ---- diagram ---- */
+  .fig-wrap { margin: 26px 0 30px; }
+  .diagram {
+    width: 100%; max-width: 100%; height: auto;
+    color: var(--ink-2); overflow: visible;
+  }
+  .d-box rect { fill: var(--surface); stroke: var(--rule); stroke-width: 1.25; }
+  .d-soft rect { fill: var(--rule-soft); stroke: none; }
+  .d-accent { fill: var(--accent-wash); stroke: var(--accent); stroke-width: 1.5; }
+  .d-lbl {
+    font-family: "IBM Plex Sans", sans-serif; font-size: 13.5px; font-weight: 600;
+    fill: var(--ink);
+  }
+  .d-lbl-sm {
+    font-family: "IBM Plex Mono", monospace; font-size: 11px; fill: var(--muted);
+  }
+  .d-on, .d-accent + text { fill: var(--accent-ink); }
+  text.d-on { fill: var(--accent-ink); }
+  .d-note {
+    font-family: "IBM Plex Sans", sans-serif; font-size: 11.5px; fill: var(--muted);
+  }
+  .d-edge {
+    font-family: "IBM Plex Mono", monospace; font-size: 10.5px; fill: var(--muted);
+    letter-spacing: .03em;
+  }
+  .d-acc { fill: var(--accent-ink); }
+  figcaption {
+    font-size: 13.5px; color: var(--muted); margin-top: 12px; max-width: 68ch;
+    line-height: 1.55;
+  }
+  @media (max-width: 620px) {
+    .fig-wrap { overflow-x: auto; }
+    .diagram { min-width: 560px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+</head>
+<body>
+<header class="top">
+  <div class="top-inner">
+    <p class="eyebrow">Conversation QA · TypeSafe Jev</p>
+    <h1>Scoring every conversation, not a sample of them</h1>
+    <p class="standfirst">
+      Contact-centre quality review reads <strong>1–3%</strong> of interactions by hand and
+      extrapolates from it. This tool scores <strong>all of them</strong> against rubrics you
+      write, by replacing the language model in the loop with a classifier that costs
+      about five thousandths of a cent per conversation.
+    </p>
+    <div class="figures">
+      <div class="fig"><div class="v">$0.0025</div><div class="l">57 sessions, 9 rubrics</div></div>
+      <div class="fig"><div class="v">1</div><div class="l">request per transcript</div></div>
+      <div class="fig"><div class="v">314ms</div><div class="l">per session</div></div>
+      <div class="fig"><div class="v">100%</div><div class="l">coverage, not sampled</div></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<section>
+  <h2>How it works</h2>
+  <p class="sub">Two mechanisms carry the whole design.</p>
+
+  <figure class="fig-wrap">
+    <svg viewBox="0 0 900 430" role="img" class="diagram"
+      aria-label="Pipeline: Cognigy OData records are assembled into a transcript, then every rubric is attached to a single Jev request; typed answers are stored raw in SQLite, and weights are applied at read time without any further model call.">
+      <defs>
+        <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+        </marker>
+        <marker id="ah-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="var(--accent)"/>
+        </marker>
+      </defs>
+
+      <!-- rubric library, converging into one request -->
+      <g class="d-soft">
+        <rect x="330" y="30" width="230" height="26" rx="3"/>
+        <rect x="345" y="62" width="200" height="26" rx="3"/>
+        <rect x="360" y="94" width="170" height="26" rx="3"/>
+      </g>
+      <text x="445" y="48" class="d-lbl-sm" text-anchor="middle">rubric 1 &#183; true / false</text>
+      <text x="445" y="80" class="d-lbl-sm" text-anchor="middle">rubric 2 &#183; score</text>
+      <text x="445" y="112" class="d-lbl-sm" text-anchor="middle">rubric N &#183; option</text>
+      <text x="580" y="80" class="d-note">every rubric rides in</text>
+      <text x="580" y="96" class="d-note">the same request</text>
+      <line x1="445" y1="124" x2="445" y2="176" stroke="var(--accent)" stroke-width="1.5" marker-end="url(#ah-a)"/>
+
+      <!-- main flow -->
+      <g class="d-box">
+        <rect x="16" y="186" width="150" height="56" rx="3"/>
+        <rect x="206" y="186" width="130" height="56" rx="3"/>
+        <rect x="586" y="186" width="150" height="56" rx="3"/>
+        <rect x="776" y="186" width="108" height="56" rx="3"/>
+      </g>
+      <rect x="376" y="186" width="140" height="56" rx="3" class="d-accent"/>
+
+      <text x="91" y="209" class="d-lbl" text-anchor="middle">Cognigy OData</text>
+      <text x="91" y="227" class="d-lbl-sm" text-anchor="middle">/Conversations</text>
+      <text x="271" y="209" class="d-lbl" text-anchor="middle">Transcript</text>
+      <text x="271" y="227" class="d-lbl-sm" text-anchor="middle">assembled</text>
+      <text x="446" y="209" class="d-lbl d-on" text-anchor="middle">Jev</text>
+      <text x="446" y="227" class="d-lbl-sm d-on" text-anchor="middle">one request</text>
+      <text x="661" y="209" class="d-lbl" text-anchor="middle">SQLite</text>
+      <text x="661" y="227" class="d-lbl-sm" text-anchor="middle">raw answers only</text>
+      <text x="830" y="209" class="d-lbl" text-anchor="middle">Score</text>
+      <text x="830" y="227" class="d-lbl-sm" text-anchor="middle">+ flags</text>
+
+      <g stroke="currentColor" stroke-width="1.25" fill="none" marker-end="url(#ah)">
+        <line x1="166" y1="214" x2="198" y2="214"/>
+        <line x1="336" y1="214" x2="368" y2="214"/>
+        <line x1="516" y1="214" x2="578" y2="214"/>
+        <line x1="736" y1="214" x2="768" y2="214"/>
+      </g>
+      <text x="182" y="204" class="d-edge" text-anchor="middle">filter</text>
+      <text x="352" y="204" class="d-edge" text-anchor="middle">state</text>
+      <text x="547" y="204" class="d-edge" text-anchor="middle">typed</text>
+
+      <!-- annotations under the first two stages -->
+      <text x="91" y="266" class="d-note" text-anchor="middle">project &#183; endpoint</text>
+      <text x="91" y="282" class="d-note" text-anchor="middle">date range</text>
+      <text x="271" y="266" class="d-note" text-anchor="middle">fragments merged,</text>
+      <text x="271" y="282" class="d-note" text-anchor="middle">speakers mapped</text>
+      <text x="446" y="266" class="d-note" text-anchor="middle">read once, all</text>
+      <text x="446" y="282" class="d-note" text-anchor="middle">questions in parallel</text>
+
+      <!-- the re-weight loop, which never crosses back to the model -->
+      <path d="M 830 242 L 830 356 L 661 356 L 661 248" fill="none"
+        stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4 3" marker-end="url(#ah-a)"/>
+      <text x="746" y="376" class="d-edge d-acc" text-anchor="middle">re-weight &#8212; no model call</text>
+
+    </svg>
+    <figcaption>
+      Every rubric is attached to one request, and weights are applied after storage &#8212;
+      so adding rubrics does not add calls, and changing weights does not add any.
+    </figcaption>
+  </figure>
+
+  <h3>One request per transcript, however many rubrics</h3>
+  <p>
+    Jev is a classifier, not a language model. It reads the transcript once and answers
+    every attached question against it in parallel, so a library of thirty rubrics costs
+    the same single call as one. A conventional LLM judge re-reads the transcript per
+    dimension and bills output tokens for prose nobody reads.
+  </p>
+  <p>
+    Answers come back typed &#8212; a probability for a true/false question, a level for a
+    score, an option key for a choice &#8212; so nothing is parsed out of prose and nothing
+    can arrive in a shape the code did not expect.
+  </p>
+
+  <h3>Raw answers are stored; policy is applied on read</h3>
+  <p>
+    The model is never asked for an overall grade. It reports each rubric separately, and
+    the weighted composite is computed when you look at the results. That is what makes the
+    weight sliders instant: moving one re-ranks an entire history with no request, no cost,
+    and no risk of old scores being incomparable with new ones.
+  </p>
+
+  <h3>Confidence routes, it does not grade</h3>
+  <p>
+    Score and option answers carry a confidence; true/false answers do not, because there
+    the probability already carries it. A low confidence usually means the transcript did
+    not contain enough to judge &#8212; so those sessions are flagged for a person rather
+    than scored down. Human attention lands where the machine was genuinely unsure instead
+    of on a random sample.
+  </p>
+
+  <h3>Long transcripts split, and fold back by meaning</h3>
+  <p>
+    A transcript over the context budget is cut on turn boundaries and each part scored
+    separately. How the parts recombine is derived from the rubric, not asked of the author:
+    a violation counts if it happened anywhere, an outcome is settled by the end of the
+    conversation, and a graded quality is averaged across it. Averaging everything would
+    quietly destroy the first case &#8212; one breach among clean chunks disappears.
+  </p>
+</section>
+
+<section>
+  <h2>Driving it with a coding agent</h2>
+  <p class="sub">Setup is two commands. After that you describe what you want measured.</p>
+
+  <div class="term-wrap"><pre class="term"><span class="c">#  once</span>
+npm link
+ln -s $PWD/skills/jev-cognigy-qa ~/.claude/skills/jev-cognigy-qa</pre></div>
+  <p class="caption">
+    The second line installs an agent skill. It teaches Claude Code, Codex or anything else
+    that reads skills which rubric type to reach for, how to read a confidence number, and
+    when to hand a question back to you rather than guess.
+  </p>
+
+  <p>Point your agent at the repository:</p>
+  <div class="term-wrap"><pre class="term">Clone <span class="w">https://github.com/pb-crackers/Jev-Cognigy-QA-Suite</span>, follow its
+AGENTS.md to set it up, then help me QA my Cognigy conversations.</pre></div>
+  <p class="caption">One line, pasted into Claude Code, Codex, or anything else that reads a
+  repository. It installs the tool and the skill, then hands the credentials step back to
+  you &#8212; an agent should never be handling your API keys.</p>
+
+  <p>After that you talk to it normally:</p>
+  <div class="note">
+    <p><strong>&#8220;Check whether our agents are confirming details back to customers
+    before acting. Score last week.&#8221;</strong></p>
+  </div>
+
+  <ol class="steps">
+    <li>
+      <h3>It writes the rubric</h3>
+      <p>Turning the request into a question, an answer type and the boundary conditions.
+      You never touch JSON.</p>
+      <div class="term-wrap"><pre class="term">$ jev-cognigy-qa rubric add --json '{&#8230;}'
+
+  <span class="g">saved</span> Confirmed details back
+  <span class="c">type</span> boolean   <span class="c">combine</span> last <span class="c">(derived)</span></pre></div>
+    </li>
+    <li>
+      <h3>It runs the date range</h3>
+      <p>Results go to stdout as JSON, progress to stderr, so the output pipes cleanly into
+      whatever comes next.</p>
+      <div class="term-wrap"><pre class="term">$ jev-cognigy-qa score --project V2V --from 2026-09-15 --to 2026-09-19
+
+  12 sessions   <span class="w">$0.000599</span>   4.0s   <span class="a">9 flagged</span></pre></div>
+    </li>
+    <li>
+      <h3>It reads the findings back to you</h3>
+      <p>Not a dump of numbers. A synthesis, ranked worst first, with the transcript excerpts
+      that justify each one &#8212; written to be handed onward to an agent working on the
+      Flow itself.</p>
+      <div class="term-wrap"><pre class="term">$ jev-cognigy-qa brief | pbcopy</pre></div>
+    </li>
+  </ol>
+
+  <h3>What makes it drivable</h3>
+  <p>
+    The design decisions that matter for an agent are small and dull, and all of them were
+    things that broke the first time:
+  </p>
+  <ul class="plain">
+    <li><strong>JSON on stdout, progress on stderr.</strong> Output stays pipeable while a
+      long run still reports what it is doing.</li>
+    <li><strong>No flags to remember.</strong> The command loads its own configuration; an
+      agent that forgets a flag gets a confusing error and gives up.</li>
+    <li><strong>Configuration resolves from the install, not the working directory.</strong>
+      Otherwise the same command works in one folder and reports itself unconfigured in the
+      next.</li>
+    <li><strong>Validation returns every problem at once,</strong> so a rejected rubric tells
+      the agent everything to fix rather than one thing per attempt.</li>
+    <li><strong>Credentials stay with you.</strong> The skill tells the agent to hand
+      <code>init</code> back to the user rather than handle API keys.</li>
+  </ul>
+
+  <h3>The full command surface</h3>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Command</th><th>Does</th></tr></thead>
+      <tbody>
+        <tr><td><code>projects</code></td><td>List projects</td></tr>
+        <tr><td><code>endpoints --project</code></td><td>List endpoints, plus the Interaction Panel</td></tr>
+        <tr><td><code>rubrics</code></td><td>Read the current library</td></tr>
+        <tr><td><code>rubric add --json</code></td><td>Add or update, one or many</td></tr>
+        <tr><td><code>score --project --from --to</code></td><td>Score a date range</td></tr>
+        <tr><td><code>brief</code></td><td>Synthesised findings as markdown</td></tr>
+        <tr><td><code>report</code></td><td>A past run, as JSON</td></tr>
+        <tr><td><em>no argument</em></td><td>Open the web UI instead</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<footer>
+  Scores, cost and latency are measured against a live Cognigy environment. The rubric
+  library is yours to write &#8212; the eight it ships with are a starting point, not a
+  standard.
+</footer>
+
+</div>
+</body>
+</html>
