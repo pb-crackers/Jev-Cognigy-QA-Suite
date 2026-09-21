@@ -247,6 +247,10 @@ const schedulePreview = () => {
 };
 for (const id of ['from', 'to', 'limit']) {
   $(id).addEventListener('change', schedulePreview);
+}
+// Date fields also fire `input` while being typed into; the debounce is what
+// keeps that from becoming a query per keystroke.
+for (const id of ['from', 'to']) {
   $(id).addEventListener('input', schedulePreview);
 }
 $('project').addEventListener('change', async () => {

@@ -27,7 +27,15 @@
       <div class="f"><label for="to">To</label><input class="ctl" id="to" type="date"></div>
     </div>
     <div class="grid" style="margin-top:12px">
-      <div class="f"><label for="limit">Max sessions</label><input class="ctl" id="limit" type="number" min="1" max="500" value="25"></div>
+      <div class="f"><label for="limit">Max sessions</label><select class="ctl" id="limit">
+        <option value="25">25</option>
+        <option value="50">50</option>
+        <option value="100" selected>100</option>
+        <option value="150">150</option>
+        <option value="200">200</option>
+        <option value="250">250</option>
+        <option value="300">300</option>
+      </select></div>
       <div class="f"><label for="skip">Skip already scored</label>
         <select class="ctl" id="skip"><option value="yes">Yes</option><option value="no">No</option></select></div>
     </div>

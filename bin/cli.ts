@@ -344,7 +344,7 @@ async function headless(command: string, argv: string[]): Promise<void> {
         to: to.length === 10 ? to + 'T23:59:59Z' : to,
         endpoint: flags.endpoint === undefined ? undefined : String(flags.endpoint),
         channels: asList(flags.channel),
-        limit: Number(flags.limit ?? 50),
+        limit: Number(flags.limit ?? 100),
         skipScored: flags['no-skip'] !== true,
       },
       headlessDeps,
