@@ -18,5 +18,10 @@
   },
   "engines": {
     "node": ">=22.6"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pb-crackers/Jev-Cognigy-QA-Suite.git"
   }
 }

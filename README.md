@@ -11,7 +11,9 @@ one**.
 
 Measured against a live environment: **57 sessions, 9 rubrics, $0.0025, 314ms per session.**
 
-There is a walkthrough of the architecture in [`docs/overview.html`](docs/overview.html).
+An illustrated walkthrough of the architecture lives in `docs/overview.html` — clone the
+repo and open it in a browser, since GitHub shows HTML files as source rather than
+rendering them.
 
 ## Use it with your coding agent
 
@@ -76,4 +78,17 @@ low-confidence almost everywhere is usually the rubric's fault, not the agent's.
 
 ## Requirements
 
-Node 22.6 or newer. No build step; no dependencies beyond the TypeSafe SDK.
+Node 22.6 or newer — the CLI is TypeScript run directly, with no build step. The only
+runtime dependency is the TypeSafe SDK.
+
+You will also need, on the Cognigy side:
+
+- an API key from your profile;
+- the **`odata`** global role on that user, granted separately in Admin Center;
+- the OData host that matches your API host — `api-trial-us` pairs with `odata-trial-us`.
+  A mismatch returns `401` with a perfectly good key, which is the most common setup
+  failure. `init` suggests the right one.
+
+## Licence
+
+MIT.
