@@ -1,0 +1,295 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Modality-aware rubrics</title>
+<!--
+  Mockup for Tasks/modality-aware-rubrics.md.
+
+  Targets, in the real app:
+    · #rubric-form in src/public/index.html    — the new "Applies to" field and note fields
+    · renderRubrics()  in src/public/app.js    — scope pill in the rubric list
+    · renderTable()    in src/public/app.js    — rubric count beside the composite
+    · openSession()    in src/public/app.js    — N/A rows in the session drawer
+
+  Tokens are lifted verbatim from src/public/app.css. Modality reuses the channel-chip
+  colours shipped in channel-context so voice reads orange and text blue everywhere:
+    --t-score (voice) · --t-noul (text) · --ink-muted (any / not applicable)
+
+  Primary canvas 1280px, the app's own max-width. The editor column is the 420px drawer
+  at its normal width; it reflows to full width below 720px exactly as the drawer does.
+-->
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1:#fcfcfb; --plane:#f9f9f7; --ink-1:#0b0b0b; --ink-2:#52514e;
+    --ink-muted:#898781; --hairline:#e1e0d9; --border:rgba(11,11,11,.10);
+    --t-noul:#2a78d6; --t-score:#eb6834; --t-choice:#1baf7a;
+    --good:#0ca30c; --warning:#fab219; --critical:#d03b3b;
+    --meter-track:#cde2fb; --meter-fill:#2a78d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1:#1a1a19; --plane:#0d0d0d; --ink-1:#fff; --ink-2:#c3c2b7;
+      --hairline:#2c2c2a; --border:rgba(255,255,255,.10);
+      --t-noul:#3987e5; --t-score:#d95926; --t-choice:#199e70;
+      --meter-track:#184f95; --meter-fill:#3987e5;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1:#1a1a19; --plane:#0d0d0d; --ink-1:#fff; --ink-2:#c3c2b7;
+    --hairline:#2c2c2a; --border:rgba(255,255,255,.10);
+    --t-noul:#3987e5; --t-score:#d95926; --t-choice:#199e70;
+    --meter-track:#184f95; --meter-fill:#3987e5;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:28px 16px 80px;background:var(--plane);color:var(--ink-1);
+       font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{max-width:1280px;margin:0 auto}
+  h1{font-size:20px;font-weight:600;margin:0 0 4px}
+  .sub{color:var(--ink-2);margin:0 0 28px;font-size:13px}
+  .lbl{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+       color:var(--ink-muted);margin:38px 0 8px;display:flex;gap:10px;align-items:baseline}
+  .lbl .n{font-weight:400;letter-spacing:0;text-transform:none;font-size:12px}
+  .card{background:var(--surface-1);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  .pad{padding:18px}
+
+  .f label{display:block;font-size:11px;font-weight:600;letter-spacing:.05em;
+           text-transform:uppercase;color:var(--ink-muted);margin-bottom:4px}
+  .f{margin-bottom:14px}
+  .ctl{width:100%;padding:8px 11px;border:1px solid var(--hairline);border-radius:7px;
+       background:var(--surface-1);color:var(--ink-1);font:inherit;font-size:13px}
+  textarea.ctl{resize:vertical}
+  .help{font-size:11.5px;color:var(--ink-muted);margin:5px 0 0;line-height:1.45}
+  .help b{color:var(--ink-2)}
+  .btn{padding:9px 16px;border-radius:8px;border:0;background:var(--t-noul);color:#fff;
+       font:inherit;font-weight:600;font-size:13px;cursor:pointer}
+  .btn.ghost{background:transparent;color:var(--ink-2);border:1px solid var(--hairline)}
+  .rowend{display:flex;justify-content:space-between;align-items:center;margin-top:16px;
+          padding-top:14px;border-top:1px solid var(--hairline)}
+
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;
+        letter-spacing:.04em;text-transform:uppercase;color:var(--ink-2);
+        border:1px solid var(--hairline);border-radius:999px;padding:2px 8px}
+  .pill .sw{width:7px;height:7px;border-radius:2px;flex:none}
+
+  /* NEW — modality scope pill. Same dot vocabulary as the channel chip. */
+  .scope{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;
+         letter-spacing:.04em;text-transform:uppercase;color:var(--ink-2);
+         border:1px solid var(--hairline);border-radius:999px;padding:2px 8px}
+  .scope .dot{width:6px;height:6px;border-radius:50%;flex:none}
+  .scope.voice .dot{background:var(--t-score)}
+  .scope.text  .dot{background:var(--t-noul)}
+  .scope.voice{border-color:color-mix(in oklab,var(--t-score) 45%,var(--hairline))}
+  .scope.text {border-color:color-mix(in oklab,var(--t-noul)  45%,var(--hairline))}
+
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+     color:var(--ink-muted);padding:10px 12px;border-bottom:1px solid var(--hairline)}
+  td{padding:11px 12px;border-bottom:1px solid var(--hairline);vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  th.n,td.n{text-align:right}
+  .sid{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink-2)}
+  .rd{font-size:11.5px;color:var(--ink-muted);margin-top:2px}
+  .when,.flow{font-size:12px;color:var(--ink-2)}
+
+  .chan{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2)}
+  .chan .dot{width:6px;height:6px;border-radius:50%;flex:none}
+  .chan.voice .dot{background:var(--t-score)}
+  .chan.text  .dot{background:var(--t-noul)}
+  .chan.panel .dot{background:var(--ink-muted)}
+  .chan.unknown .dot{background:transparent;border:1px solid var(--ink-muted)}
+  .chan.unknown{font-style:italic}
+
+  .meter{display:inline-flex;align-items:center;gap:8px;justify-content:flex-end}
+  .meter .track{width:120px;height:7px;border-radius:99px;background:var(--meter-track);overflow:hidden}
+  .meter .fill{height:100%;background:var(--meter-fill)}
+  .meter span{font-variant-numeric:tabular-nums;font-weight:600}
+  /* NEW — basis line under the composite. */
+  .basis{display:block;font-size:11px;color:var(--ink-muted);font-variant-numeric:tabular-nums;margin-top:3px}
+  .flag{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--warning)}
+
+  .r{padding:15px 0 16px;border-bottom:1px solid var(--hairline)}
+  .r:last-child{border-bottom:0}
+  .rh{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+  .rn{font-size:13px;line-height:1.35}
+  .rv{font-weight:600;font-variant-numeric:tabular-nums;font-size:14px;white-space:nowrap}
+  .rq{font-size:12px;color:var(--ink-2);margin:6px 0 9px;line-height:1.5}
+  .meta{display:flex;align-items:center;gap:9px;flex-wrap:wrap;font-size:11.5px;color:var(--ink-muted)}
+  .certainty{font-variant-numeric:tabular-nums}
+
+  /* NEW — a rubric that did not apply, and one that applied but returned nothing. */
+  .r.na .rn,.r.na .rq{color:var(--ink-muted)}
+  .r.na .rv{color:var(--ink-muted);font-weight:600;font-size:12px;letter-spacing:.04em;text-transform:uppercase}
+  .r.none .rv{color:var(--critical)}
+
+  .cols{display:grid;grid-template-columns:420px minmax(0,1fr);gap:22px;align-items:start}
+  @media (max-width:860px){.cols{grid-template-columns:1fr}}
+  .note{font-size:12.5px;color:var(--ink-2);background:var(--surface-1);border:1px solid var(--border);
+        border-left:3px solid var(--t-noul);border-radius:0 8px 8px 0;padding:11px 14px;margin:10px 0 0}
+</style>
+
+<div class="wrap">
+<h1>Modality-aware rubrics</h1>
+<p class="sub">A rubric can say which modality it applies to, and carry an instruction that is
+appended only for that modality. Nothing is added to the Jev state.</p>
+
+<div class="cols">
+  <div>
+    <!-- STATE 1 — editor, default. Indistinguishable from today apart from one select. -->
+    <div class="lbl">State 1 <span class="n">Editor · default (new rubric)</span></div>
+    <div class="card pad">
+      <div class="f"><label for="m1-name">Name</label>
+        <input class="ctl" id="m1-name" value="Resolved"></div>
+
+      <div class="f"><label for="m1-q">Question put to the model</label>
+        <textarea class="ctl" id="m1-q" rows="2">Did the customer&rsquo;s actual problem get resolved?</textarea>
+        <p class="help">Ask about something observable in the transcript. A question the model
+          can answer the same way twice scores far better than a vague one.</p></div>
+
+      <div class="f"><label for="m1-applies">Applies to</label>
+        <select class="ctl" id="m1-applies">
+          <option selected>Every conversation</option>
+          <option>Voice calls only</option>
+          <option>Text conversations only</option>
+        </select>
+        <p class="help">Leave as <b>Every conversation</b> unless the question only makes sense
+          in one. A conversation whose channel could not be identified is always asked
+          everything.</p></div>
+
+      <div class="f"><label for="m1-vn">Extra instruction on voice calls</label>
+        <textarea class="ctl" id="m1-vn" rows="2" placeholder="Blank unless you need it"></textarea></div>
+
+      <div class="f"><label for="m1-tn">Extra instruction on text conversations</label>
+        <textarea class="ctl" id="m1-tn" rows="2" placeholder="Blank unless you need it"></textarea>
+        <p class="help">Appended to this rubric&rsquo;s question for that modality only. Blank
+          means the question is asked exactly as written above.</p></div>
+
+      <div class="rowend"><span></span><button class="btn">Save rubric</button></div>
+    </div>
+
+    <!-- STATE 2 — editor, scoped to voice. The text note field is gone, not disabled. -->
+    <div class="lbl">State 2 <span class="n">Editor · scoped to voice, note written</span></div>
+    <div class="card pad">
+      <div class="f"><label for="m2-name">Name</label>
+        <input class="ctl" id="m2-name" value="Confirmed spelling"></div>
+
+      <div class="f"><label for="m2-q">Question put to the model</label>
+        <textarea class="ctl" id="m2-q" rows="2">Did the agent read back or confirm the spelling of anything the customer spelled out?</textarea></div>
+
+      <div class="f"><label for="m2-applies">Applies to</label>
+        <select class="ctl" id="m2-applies">
+          <option>Every conversation</option>
+          <option selected>Voice calls only</option>
+          <option>Text conversations only</option>
+        </select>
+        <p class="help">This rubric is skipped on text conversations and reported there as
+          <b>not applicable</b>.</p></div>
+
+      <div class="f"><label for="m2-vn">Extra instruction on voice calls</label>
+        <textarea class="ctl" id="m2-vn" rows="3">The customer&rsquo;s words come from speech recognition, so a misheard name is not by itself an agent failure.</textarea>
+        <p class="help">The text field is hidden because this rubric never runs on text.</p></div>
+
+      <div class="rowend"><button class="btn ghost">Delete</button><button class="btn">Save rubric</button></div>
+    </div>
+  </div>
+
+  <div>
+    <!-- STATE 3 — rubric list with scope pills. Unscoped rubrics show no pill at all. -->
+    <div class="lbl">State 3 <span class="n">Rubric list · scope shown only when set</span></div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Rubric</th><th>Type</th><th class="n">Weight</th></tr></thead>
+        <tbody>
+          <tr><td><b>Resolved</b><div class="rd">Did the customer&rsquo;s actual problem get resolved?</div></td>
+              <td><span class="pill"><span class="sw" style="background:var(--t-noul)"></span>boolean</span></td>
+              <td class="n">3</td></tr>
+          <tr><td><b>Confirmed spelling</b> <span class="scope voice"><span class="dot"></span>Voice</span>
+                  <div class="rd">Did the agent read back or confirm the spelling of anything the customer spelled out?</div></td>
+              <td><span class="pill"><span class="sw" style="background:var(--t-noul)"></span>boolean</span></td>
+              <td class="n">2</td></tr>
+          <tr><td><b>Formatting</b> <span class="scope text"><span class="dot"></span>Text</span>
+                  <div class="rd">Were links and lists rendered in a form the customer could act on?</div></td>
+              <td><span class="pill"><span class="sw" style="background:var(--t-score)"></span>score</span></td>
+              <td class="n">1</td></tr>
+          <tr><td><b>Frustration</b><div class="rd">How frustrated did the customer become?</div></td>
+              <td><span class="pill"><span class="sw" style="background:var(--t-score)"></span>score</span></td>
+              <td class="n">2</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">An unscoped rubric carries no pill, so the list still reads as it does today
+      and a scope is visible precisely because it is the exception.</p>
+
+    <!-- STATE 4 — results table. The count is what makes two 4.2s comparable. -->
+    <div class="lbl">State 4 <span class="n">Results · composite states its basis</span></div>
+    <div class="card">
+      <table>
+        <thead><tr><th>Session</th><th>Channel</th><th>When</th><th>Endpoint</th>
+          <th class="n">Turns</th><th class="n">Overall</th><th>Review</th></tr></thead>
+        <tbody>
+          <tr><td class="sid">3a99b160</td>
+              <td><span class="chan voice"><span class="dot"></span>Voice</span></td>
+              <td class="when">21 Sep 2026, 09:14</td><td class="flow">Main</td>
+              <td class="n">21</td>
+              <td class="n"><span class="meter"><span class="track"><span class="fill" style="width:84%"></span></span><span>4.2</span></span>
+                  <span class="basis">3 of 4 rubrics</span></td>
+              <td></td></tr>
+          <tr><td class="sid">7c01ffa2</td>
+              <td><span class="chan text"><span class="dot"></span>REST API</span></td>
+              <td class="when">21 Sep 2026, 09:02</td><td class="flow">Main</td>
+              <td class="n">12</td>
+              <td class="n"><span class="meter"><span class="track"><span class="fill" style="width:84%"></span></span><span>4.2</span></span>
+                  <span class="basis">3 of 4 rubrics</span></td>
+              <td><span class="flag">1 low confidence</span></td></tr>
+          <tr><td class="sid">11489180</td>
+              <td><span class="chan panel"><span class="dot"></span>Interaction Panel</span></td>
+              <td class="when">21 Sep 2026, 08:47</td><td class="flow">Main</td>
+              <td class="n">8</td>
+              <td class="n"><span class="meter"><span class="track"><span class="fill" style="width:76%"></span></span><span>3.8</span></span>
+                  <span class="basis">3 of 4 rubrics</span></td>
+              <td></td></tr>
+          <tr><td class="sid">be40c7d1</td>
+              <td><span class="chan unknown"><span class="dot"></span>Unknown</span></td>
+              <td class="when">21 Sep 2026, 08:31</td><td class="flow">Main</td>
+              <td class="n">15</td>
+              <td class="n"><span class="meter"><span class="track"><span class="fill" style="width:70%"></span></span><span>3.5</span></span>
+                  <span class="basis">4 of 4 rubrics</span></td>
+              <td></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">The unknown-channel session is asked <b>every</b> rubric &mdash; 4 of 4 &mdash;
+      which is the decision recorded in the brief: skipping loses a score you cannot recover,
+      whereas an inapplicable question yields a visibly weak answer.</p>
+
+    <!-- STATE 5 — drawer. N/A and no-answer must not look the same. -->
+    <div class="lbl">State 5 <span class="n">Session drawer · not applicable vs no answer</span></div>
+    <div class="card pad" style="max-width:520px">
+      <div class="r">
+        <div class="rh"><span class="rn">Resolved</span><span class="rv">0.91</span></div>
+        <div class="rq">Did the customer&rsquo;s actual problem get resolved?</div>
+        <div class="meta"><span class="pill"><span class="sw" style="background:var(--t-noul)"></span>boolean</span>
+          <span class="certainty">probability 0.91</span></div>
+      </div>
+
+      <div class="r na">
+        <div class="rh"><span class="rn">Confirmed spelling <span class="scope voice"><span class="dot"></span>Voice</span></span>
+          <span class="rv">Not applicable</span></div>
+        <div class="rq">Did the agent read back or confirm the spelling of anything the customer spelled out?</div>
+        <div class="meta"><span>This rubric only applies to voice calls. It was never asked, so nothing was paid for it.</span></div>
+      </div>
+
+      <div class="r none">
+        <div class="rh"><span class="rn">Frustration</span><span class="rv">&mdash;</span></div>
+        <div class="rq">How frustrated did the customer become?</div>
+        <div class="meta"><span class="pill"><span class="sw" style="background:var(--t-score)"></span>score</span>
+          <span>Asked, but no answer came back</span></div>
+      </div>
+    </div>
+    <p class="note">Two different silences, told apart by wording rather than by colour alone:
+      <b>Not applicable</b> is a decision the rubric made, <b>&mdash;</b> is a missing answer worth
+      investigating. Both carry their reason as text, so neither depends on the dot colour.</p>
+  </div>
+</div>
+</div>

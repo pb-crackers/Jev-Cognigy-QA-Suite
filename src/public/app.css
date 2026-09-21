@@ -470,3 +470,34 @@ tr.sel td { background: rgba(42,120,214,.07); }
 
 /* The drawer header now holds a chip beside its text. */
 .drawer-head h2 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Modality scope. Same dot vocabulary as the channel chip above, so voice reads
+   orange and text blue wherever either appears. */
+.scope {
+  display: inline-flex; align-items: center; gap: 5px; vertical-align: middle;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--ink-2); border: 1px solid var(--hairline); border-radius: 999px; padding: 2px 8px;
+}
+.scope .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.scope.voice .dot { background: var(--t-score); }
+.scope.text  .dot { background: var(--t-noul); }
+.scope.voice { border-color: color-mix(in oklab, var(--t-score) 45%, var(--hairline)); }
+.scope.text  { border-color: color-mix(in oklab, var(--t-noul)  45%, var(--hairline)); }
+
+.rname { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* What the composite was built from. A scoped rubric can shrink the basis, so
+   two identical scores are not necessarily measuring the same thing. */
+.basis {
+  display: block; margin-top: 3px; font-size: 11px;
+  color: var(--ink-muted); font-variant-numeric: tabular-nums;
+}
+
+/* A rubric that did not apply, and one that applied but returned nothing. Both
+   say why in words: neither is distinguished by colour alone. */
+.r.na .rn, .r.na .rq { color: var(--ink-muted); }
+.r.na .rv {
+  color: var(--ink-muted); font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
+}
+.r.none .rv { color: var(--critical); }
+.r .rn { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }

@@ -10,6 +10,7 @@ import { strict as assert } from 'node:assert';
 import { after, before, describe, it } from 'node:test';
 import { startStubApi, type StubApi } from './helpers/stub-api.ts';
 import type { ConversationRecord, SessionSummary } from '../src/cognigy/odata.ts';
+import type { Rubric } from '../src/rubrics/model.ts';
 
 let api: StubApi;
 let executeRun: typeof import('../src/scoring/run.ts').executeRun;
@@ -17,13 +18,13 @@ let Store: typeof import('../src/store/db.ts').Store;
 let DEFAULT_RUBRICS: typeof import('../src/rubrics/defaults.ts').DEFAULT_RUBRICS;
 
 /** A fake OData client: no network, fully controllable transcripts. */
-function fakeOdata(turns: { user: string; bot: string }[], sessionIds = ['s1']) {
+function fakeOdata(turns: { user: string; bot: string }[], sessionIds = ['s1'], channel = 'rest') {
   let base = Date.parse('2026-09-18T10:00:00.000Z');
   const record = (text: string, isUser: boolean): ConversationRecord => ({
     id: String(base), sessionId: 's1', inputId: 'i', projectId: 'p', projectName: 'P',
     inputText: text, inputData: '{}', type: isUser ? 'input' : 'output',
     source: isUser ? 'user' : 'bot', timestamp: new Date((base += 1000)).toISOString(),
-    flowName: 'F', channel: 'rest', endpointName: 'Web', inHandoverRequest: false,
+    flowName: 'F', channel, endpointName: 'Web', inHandoverRequest: false,
     inHandoverConversation: false, rating: null, ratingComment: null, isMasked: null,
   });
 
@@ -31,7 +32,7 @@ function fakeOdata(turns: { user: string; bot: string }[], sessionIds = ['s1']) 
     async sessions(): Promise<SessionSummary[]> {
       return sessionIds.map((sessionId) => ({
         sessionId, startedAt: '2026-09-18T10:00:00.000Z', lastAt: '2026-09-18T10:10:00.000Z',
-        endpointName: 'Web', channel: 'rest', rating: null, masked: false, records: turns.length * 2,
+        endpointName: 'Web', channel, rating: null, masked: false, records: turns.length * 2,
       }));
     },
     async conversation(): Promise<ConversationRecord[]> {
@@ -191,6 +192,59 @@ describe('a scoring run', () => {
       assert.ok(!serialised.includes(leaked), `state must not mention ${leaked}`);
     }
     store.close();
+  });
+
+  it('asks a voice-scoped rubric of a call and not of a chat, and only notes the call', async () => {
+    // The whole feature in one assertion pair: a rubric scoped to voice is
+    // absent from the questions sent for a text conversation, and the modality
+    // note rides in the instructions rather than in the state.
+    const spelling: Rubric = {
+      id: 'spelling', name: 'Confirmed spelling', type: 'boolean', combine: 'last',
+      weight: 1, enabled: true,
+      question: 'Did the agent confirm the spelling?',
+      appliesTo: 'voice',
+      notes: { voice: 'The words come from speech recognition.' },
+    };
+    const general: Rubric = {
+      id: 'helped', name: 'Helped', type: 'boolean', combine: 'last',
+      weight: 1, enabled: true, question: 'Was the customer helped?',
+    };
+    const rubrics = [general, spelling];
+
+    const ask = async (channel: string) => {
+      const store = new Store(':memory:');
+      await executeRun(
+        { projectId: 'p', projectName: 'P', from: 'a', to: 'b', limit: 1, skipScored: false },
+        { odata: fakeOdata(SHORT, ['s1'], channel), store, rubrics },
+      );
+      store.close();
+      return api.requests.at(-1)!;
+    };
+
+    const voice = await ask('voiceGateway2');
+    assert.deepEqual(Object.keys(voice.questions).sort(), ['r_helped', 'r_spelling']);
+    const scoped = voice.questions.r_spelling as { instructions: { question: string; note?: string } };
+    assert.equal(scoped.instructions.question, 'Did the agent confirm the spelling?');
+    assert.equal(scoped.instructions.note, 'The words come from speech recognition.');
+    assert.ok(
+      !JSON.stringify(voice.state).includes('speech recognition'),
+      'the note belongs to the question, never to the state',
+    );
+
+    const text = await ask('rest');
+    assert.deepEqual(Object.keys(text.questions), ['r_helped'], 'the voice rubric is not asked');
+
+    // The Interaction Panel is text like any other typed channel: a rubric must
+    // not be able to tell that a session was a developer testing the flow.
+    const panel = await ask('adminconsole');
+    assert.deepEqual(Object.keys(panel.questions), Object.keys(text.questions));
+
+    // A channel nobody has mapped is asked everything: a score not taken cannot
+    // be recovered, whereas a weak answer can be discounted.
+    const unmapped = await ask('someNewGateway');
+    assert.deepEqual(Object.keys(unmapped.questions).sort(), ['r_helped', 'r_spelling']);
+    const unscoped = unmapped.questions.r_spelling as { instructions: { note?: string } };
+    assert.equal(unscoped.instructions.note, undefined, 'no modality, so no modality note');
   });
 
   it('refuses to run with no rubrics enabled', async () => {

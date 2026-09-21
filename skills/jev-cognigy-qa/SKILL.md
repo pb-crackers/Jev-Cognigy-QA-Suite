@@ -72,6 +72,42 @@ Set `invert: true` when a **high** answer is the **bad** outcome — "agent stra
 instructions", "customer frustration". Without it the composite score rewards the thing
 you were trying to catch.
 
+### Modality — voice and text
+
+Some questions only make sense in one medium. "Did the agent confirm the spelling?" is a
+fair question on a phone call and meaningless in a chat window.
+
+- `appliesTo: "voice"` or `"text"` — the rubric is asked only of that medium. Leave it out
+  for everything else, which is the normal case.
+- `notes: { "voice": "...", "text": "..." }` — extra instruction appended to this rubric's
+  question, for that medium only. Blank by default.
+
+```json
+{
+  "id": "confirmed_spelling",
+  "name": "Confirmed spelling",
+  "question": "Did the agent read back or confirm the spelling of anything the customer spelled out?",
+  "type": "boolean",
+  "weight": 2,
+  "appliesTo": "voice",
+  "notes": {
+    "voice": "The customer's words come from speech recognition, so a misheard name is not by itself an agent failure."
+  }
+}
+```
+
+Two rules worth knowing:
+
+- The **Interaction Panel counts as text**, like any other typed channel. A rubric cannot
+  tell that a session was a developer testing rather than a customer — tests are graded
+  exactly like live traffic. The results table still shows "Interaction Panel".
+- A conversation whose channel **could not be identified is asked every rubric**, scope or
+  not. A score not taken cannot be recovered; a question asked of the wrong medium gives a
+  visibly weak answer you can discount.
+
+A rubric that did not apply is reported as **not applicable**, which is different from a
+rubric that was asked and returned nothing.
+
 ### Combine mode — you do not set this
 
 Long transcripts get split across requests, and the per-chunk results have to be folded

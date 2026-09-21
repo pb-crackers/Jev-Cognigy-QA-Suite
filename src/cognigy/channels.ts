@@ -15,6 +15,30 @@
 /** How a label is grouped, for styling and for reading at a glance. */
 export type ChannelKind = 'voice' | 'text' | 'panel' | 'unknown';
 
+/**
+ * How the conversation was carried, which is the axis a rubric can scope itself
+ * to. Deliberately coarser than `ChannelKind`: the Interaction Panel is a typed
+ * conversation like any other, and a rubric must never be able to tell that a
+ * session was a developer testing rather than a customer. That rule is settled
+ * in the channel-context feature — the label a reviewer reads and the context a
+ * rubric gets are different things on purpose.
+ */
+export type Modality = 'voice' | 'text';
+
+/**
+ * The modality of a channel kind, or `undefined` when it cannot be established.
+ *
+ * `undefined` does not mean "neither". It means the question of which rubrics
+ * apply cannot be answered, and callers treat that as "every rubric applies":
+ * a score not taken cannot be recovered, whereas a question asked of the wrong
+ * modality produces a visibly weak answer that a reviewer can discount.
+ */
+export function modalityOf(kind: ChannelKind): Modality | undefined {
+  if (kind === 'voice') return 'voice';
+  if (kind === 'text' || kind === 'panel') return 'text';
+  return undefined;
+}
+
 export interface ChannelLabel {
   /** The raw value Cognigy reported. The fact, as opposed to the presentation. */
   raw: string;

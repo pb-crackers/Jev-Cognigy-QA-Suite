@@ -12,10 +12,10 @@ import { randomUUID } from 'node:crypto';
 import { CognigyApi } from './cognigy/api.ts';
 import { OdataClient } from './cognigy/odata.ts';
 import { INTERACTION_PANEL } from './cognigy/transcript.ts';
-import { labelFor } from './cognigy/channels.ts';
 import { llmEquivalents } from './metering.ts';
 import { DEFAULT_RUBRICS } from './rubrics/defaults.ts';
 import { inferCombine, type Rubric } from './rubrics/model.ts';
+import { labelFor, type Modality } from './cognigy/channels.ts';
 import { executeRun, type RunProgress } from './scoring/run.ts';
 import { Store } from './store/db.ts';
 import { scoreSessions } from './store/score.ts';
@@ -48,6 +48,27 @@ function isRubric(value: unknown): value is Rubric {
     typeof rubric.question === 'string' &&
     ['boolean', 'score', 'choice'].includes(rubric.type as string)
   );
+}
+
+/** A modality scope, or undefined for "every conversation". */
+function asModality(value: unknown): Modality | undefined {
+  return value === 'voice' || value === 'text' ? value : undefined;
+}
+
+/**
+ * Modality notes, keeping only non-empty strings. An empty box in the editor
+ * means no note, not an empty one, and a note kept for a modality the rubric
+ * never runs on would be dead weight in the stored rubric.
+ */
+function asNotes(value: unknown, scope: Modality | undefined): Rubric['notes'] {
+  const source = (value ?? {}) as Partial<Record<Modality, unknown>>;
+  const notes: Partial<Record<Modality, string>> = {};
+  for (const modality of ['voice', 'text'] as const) {
+    if (scope && scope !== modality) continue;
+    const note = source[modality];
+    if (typeof note === 'string' && note.trim()) notes[modality] = note.trim();
+  }
+  return Object.keys(notes).length > 0 ? notes : undefined;
 }
 
 export function createApp(deps: Deps) {
@@ -87,11 +108,14 @@ export function createApp(deps: Deps) {
         if (request.method === 'POST') {
           const body = await readJson<Partial<Rubric>>(request);
           if (!isRubric(body)) return send(400, { error: 'Not a valid rubric' });
+          const appliesTo = asModality(body.appliesTo);
           const rubric: Rubric = {
             ...body,
             id: body.id?.trim() || randomUUID().slice(0, 8),
             weight: Number(body.weight ?? 1),
             enabled: body.enabled !== false,
+            appliesTo,
+            notes: asNotes(body.notes, appliesTo),
             // Derived from the rubric's own shape rather than asked for.
             combine: inferCombine(body as Rubric),
           } as Rubric;
@@ -235,6 +259,9 @@ export function createApp(deps: Deps) {
           comparison: llmEquivalents(Math.round(run.costUsd / 0.042e-6)),
           sessions: scored.map((entry) => ({
             ...entry.session,
+            // Derived here rather than stored, so changing a rubric's scope
+            // re-derives which rubrics did not apply without a re-score.
+            channelKind: labelFor(entry.session.channel).kind,
             // The transcript is parsed client-side; contactId is never included.
             composite: entry.composite ?? null,
             flagged: entry.flagged,

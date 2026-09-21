@@ -320,6 +320,33 @@ function pill(type) {
   return span;
 }
 
+const MODALITY_LABEL = { voice: 'Voice', text: 'Text' };
+
+/**
+ * The modality of a session, mirroring modalityOf() on the server. `undefined`
+ * means it could not be established, and such a session is asked everything.
+ */
+function modalityOf(kind) {
+  if (kind === 'voice') return 'voice';
+  if (kind === 'text' || kind === 'panel') return 'text';
+  return undefined;
+}
+
+/** Whether a rubric was asked of this session. Derived, never stored. */
+function applies(rubric, session) {
+  const modality = modalityOf(session.channelKind);
+  return modality === undefined || !rubric.appliesTo || rubric.appliesTo === modality;
+}
+
+/** The scope pill shown beside a rubric that has one. Unscoped rubrics get none. */
+function scopePill(rubric) {
+  if (!rubric.appliesTo) return null;
+  const pill = el('span', `scope ${rubric.appliesTo}`);
+  pill.append(el('span', 'dot'), document.createTextNode(MODALITY_LABEL[rubric.appliesTo]));
+  pill.title = `Only asked of ${rubric.appliesTo === 'voice' ? 'voice calls' : 'text conversations'}.`;
+  return pill;
+}
+
 function renderRubrics() {
   const rows = $('rubric-rows');
   rows.replaceChildren();
@@ -327,7 +354,11 @@ function renderRubrics() {
   for (const rubric of state.rubrics) {
     const tr = el('tr', `click${state.editing?.id === rubric.id ? ' sel' : ''}`);
     const name = el('td');
-    name.append(el('b', null, rubric.name), el('div', 'rd', rubric.question));
+    const heading = el('div', 'rname');
+    heading.append(el('b', null, rubric.name));
+    const scope = scopePill(rubric);
+    if (scope) heading.append(scope);
+    name.append(heading, el('div', 'rd', rubric.question));
     const type = el('td');
     type.append(pill(rubric.type));
     tr.append(name, type, el('td', 'n', String(rubric.weight)));
@@ -347,6 +378,9 @@ function editRubric(rubric) {
   $('r-name').value = rubric?.name ?? '';
   $('r-question').value = rubric?.question ?? '';
   $('r-type').value = rubric?.type ?? 'boolean';
+  $('r-applies').value = rubric?.appliesTo ?? '';
+  $('r-note-voice').value = rubric?.notes?.voice ?? '';
+  $('r-note-text').value = rubric?.notes?.text ?? '';
   $('r-weight').value = rubric?.weight ?? 1;
   $('r-invert').value = rubric?.invert ? 'yes' : 'no';
   $('r-true').value = rubric?.trueMeans ?? '';
@@ -360,6 +394,7 @@ function editRubric(rubric) {
     })),
   );
   syncTypeFields();
+  syncModalityFields();
   renderRubrics();
   openDrawer();
 }
@@ -465,7 +500,18 @@ function syncTypeFields() {
   $('type-choice').hidden = type !== 'choice';
 }
 
+/**
+ * A note for a modality the rubric never runs on would never be sent, so the
+ * field goes away rather than sitting there inviting text that is discarded.
+ */
+function syncModalityFields() {
+  const scope = $('r-applies').value;
+  $('note-voice').hidden = scope === 'text';
+  $('note-text').hidden = scope === 'voice';
+}
+
 $('r-type').addEventListener('change', syncTypeFields);
+$('r-applies').addEventListener('change', syncModalityFields);
 $('btn-new-rubric').addEventListener('click', () => editRubric(null));
 
 $('rubric-form').addEventListener('submit', async (event) => {
@@ -479,6 +525,11 @@ $('rubric-form').addEventListener('submit', async (event) => {
     weight: Number($('r-weight').value),
     enabled: true,
     invert: $('r-invert').value === 'yes',
+    appliesTo: $('r-applies').value || undefined,
+    notes: {
+      voice: $('r-note-voice').value.trim() || undefined,
+      text: $('r-note-text').value.trim() || undefined,
+    },
   };
 
   if (type === 'boolean') {
@@ -530,14 +581,18 @@ $('btn-delete').addEventListener('click', async () => {
 function composite(session) {
   let weighted = 0;
   let total = 0;
+  let counted = 0;
   for (const rubric of state.rubrics) {
     const result = session.results[rubric.id];
     if (!result || result.normalized === undefined || result.normalized === null) continue;
     const weight = state.weights.get(rubric.id) ?? rubric.weight;
     weighted += result.normalized * weight;
     total += weight;
+    counted++;
   }
-  return total > 0 ? (weighted / total) * 5 : undefined;
+  // The count travels with the score because a scoped rubric can shrink the
+  // basis: two sessions can both read 4.2 and not be measuring the same thing.
+  return { score: total > 0 ? (weighted / total) * 5 : undefined, counted };
 }
 
 function renderWeights() {
@@ -593,7 +648,7 @@ function rawLabel(rubric, result) {
 
 function renderTable() {
   const scored = state.sessions
-    .map((session) => ({ session, score: composite(session) }))
+    .map((session) => ({ session, ...composite(session) }))
     .sort((a, b) => (a.score ?? -1) - (b.score ?? -1));
 
   const table = el('table');
@@ -611,7 +666,7 @@ function renderTable() {
   thead.append(head);
 
   const body = el('tbody');
-  for (const { session, score } of scored) {
+  for (const { session, score, counted } of scored) {
     const tr = el('tr', 'click');
     tr.append(el('td', 'sid', session.sessionId.slice(0, 8)));
     tr.append(channelCell(session));
@@ -636,6 +691,13 @@ function renderTable() {
       track.append(fill);
       meter.append(track, el('span', null, score === undefined ? '—' : score.toFixed(1)));
       overall.append(meter);
+      const asked = state.rubrics.filter((rubric) => applies(rubric, session)).length;
+      const basis = el('span', 'basis', `${counted} of ${state.rubrics.length} rubrics`);
+      basis.title =
+        asked < state.rubrics.length
+          ? `${state.rubrics.length - asked} rubric(s) do not apply to this conversation.`
+          : 'Every rubric in the library applies to this conversation.';
+      overall.append(basis);
       tr.append(overall);
 
       const review = el('td');
@@ -767,11 +829,35 @@ function openSession(session) {
 
   for (const rubric of state.rubrics) {
     const result = session.results[rubric.id];
-    if (!result) continue;
+
+    // Two different silences, and conflating them hides a real problem. A rubric
+    // scoped away from this modality was never asked and nothing was paid for
+    // it; a rubric that was asked and came back empty is worth investigating.
+    if (!result) {
+      const missing = el('div', applies(rubric, session) ? 'r none' : 'r na');
+      const head = el('div', 'rh');
+      const name = el('span', 'rn');
+      name.append(document.createTextNode(rubric.name));
+      const scope = scopePill(rubric);
+      if (scope) name.append(scope);
+      head.append(name, el('span', 'rv', applies(rubric, session) ? '—' : 'Not applicable'));
+      missing.append(head, el('div', 'rq', rubric.question));
+      missing.append(
+        el('div', 'meta', applies(rubric, session)
+          ? 'Asked, but no answer came back.'
+          : `This rubric only applies to ${rubric.appliesTo === 'voice' ? 'voice calls' : 'text conversations'}. It was never asked, so nothing was paid for it.`),
+      );
+      panel.append(missing);
+      continue;
+    }
 
     const row = el('div', 'r');
     const header = el('div', 'rh');
-    header.append(el('span', 'rn', rubric.name), el('span', 'rv', rawLabel(rubric, result)));
+    const rubricName = el('span', 'rn');
+    rubricName.append(document.createTextNode(rubric.name));
+    const namePill = scopePill(rubric);
+    if (namePill) rubricName.append(namePill);
+    header.append(rubricName, el('span', 'rv', rawLabel(rubric, result)));
 
     // The question is the only thing that makes a number interpretable.
     const question = el('div', 'rq', rubric.question);

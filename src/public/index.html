@@ -149,6 +149,24 @@
       <p class="help">Ask about something observable in the transcript. A question the model
         can answer the same way twice scores far better than a vague one.</p></div>
 
+    <div class="f"><label for="r-applies">Applies to</label><select class="ctl" id="r-applies">
+      <option value="">Every conversation</option>
+      <option value="voice">Voice calls only</option>
+      <option value="text">Text conversations only</option></select>
+      <p class="help">Leave as <b>Every conversation</b> unless the question only makes sense in
+        one &mdash; &ldquo;did the agent confirm the spelling&rdquo; means nothing in a chat window.
+        A conversation whose channel could not be identified is always asked everything.</p></div>
+
+    <div class="f" id="note-voice"><label for="r-note-voice">Extra instruction on voice calls</label>
+      <textarea class="ctl" id="r-note-voice" rows="2"
+        placeholder="Blank unless you need it"></textarea></div>
+
+    <div class="f" id="note-text"><label for="r-note-text">Extra instruction on text conversations</label>
+      <textarea class="ctl" id="r-note-text" rows="2"
+        placeholder="Blank unless you need it"></textarea>
+      <p class="help">Appended to this rubric&rsquo;s question for that modality only. Blank means
+        the question is asked exactly as written above.</p></div>
+
     <div class="f"><label for="r-type">Answer type</label><select class="ctl" id="r-type">
       <option value="boolean">True / false</option><option value="score">Score</option>
       <option value="choice">One of several options</option></select></div>
