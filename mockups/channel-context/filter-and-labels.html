@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Channel labels &amp; filter — mockup</title>
+<!--
+  MOCKUP for [[channel-context]]. Primary canvas 1280px.
+  Reuses src/public/app.css verbatim; only the additions this feature needs are
+  declared below, so the mockup cannot drift from the app's tokens.
+
+  Key design decision shown here: the pre-run breakdown and the filter are the
+  SAME control. Counting sessions by label already requires the session list, and
+  that list is free (no Jev calls), so the counts double as the filter rather than
+  sitting beside a second one.
+-->
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1:#fcfcfb; --plane:#f9f9f7; --ink-1:#0b0b0b; --ink-2:#52514e;
+    --ink-muted:#898781; --hairline:#e1e0d9; --border:rgba(11,11,11,.10);
+    --t-noul:#2a78d6; --t-score:#eb6834; --t-choice:#1baf7a;
+    --good:#0ca30c; --warning:#fab219; --critical:#d03b3b; --success-text:#006300;
+    --meter-track:#cde2fb; --meter-fill:#2a78d6; --term-bg:#f4f4f1;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1:#1a1a19; --plane:#0d0d0d; --ink-1:#fff; --ink-2:#c3c2b7;
+      --hairline:#2c2c2a; --border:rgba(255,255,255,.10);
+      --t-noul:#3987e5; --t-score:#d95926; --t-choice:#199e70;
+      --success-text:#0ca30c; --meter-track:#184f95; --meter-fill:#3987e5; --term-bg:#111110;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1:#1a1a19; --plane:#0d0d0d; --ink-1:#fff; --ink-2:#c3c2b7;
+    --hairline:#2c2c2a; --border:rgba(255,255,255,.10);
+    --t-noul:#3987e5; --t-score:#d95926; --t-choice:#199e70;
+    --success-text:#0ca30c; --meter-track:#184f95; --meter-fill:#3987e5; --term-bg:#111110;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:28px 16px 80px;background:var(--plane);color:var(--ink-1);
+       font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{max-width:1280px;margin:0 auto}
+  h1{font-size:20px;font-weight:600;margin:0 0 4px}
+  .sub{color:var(--ink-2);margin:0 0 28px;font-size:13px}
+  .lbl{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+       color:var(--ink-muted);margin:38px 0 8px;display:flex;gap:10px;align-items:baseline}
+  .lbl .n{font-weight:400;letter-spacing:0;text-transform:none;font-size:12px}
+  .card{background:var(--surface-1);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+
+  /* terminal */
+  pre.term{margin:0;padding:16px 18px;background:var(--term-bg);border-radius:10px;
+           border:1px solid var(--border);font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;
+           color:var(--ink-1);overflow-x:auto;white-space:pre}
+  .term .ok{color:var(--success-text);font-weight:600}
+  .term .no{color:var(--critical);font-weight:600}
+  .term .dim{color:var(--ink-muted)}
+  .term .q{color:var(--t-noul);font-weight:600}
+
+  /* chrome */
+  .bar{display:flex;align-items:center;gap:18px;padding:0 18px;border-bottom:1px solid var(--hairline)}
+  .brand{font-weight:600;font-size:13px;padding:13px 0;margin-right:4px}
+  .tabs{display:flex;gap:2px;flex:1}
+  .tab{padding:13px 12px;font-size:13px;color:var(--ink-2);border-bottom:2px solid transparent;cursor:pointer}
+  .tab.on{color:var(--ink-1);font-weight:600;border-bottom-color:var(--t-noul)}
+  .env{font-size:11.5px;color:var(--ink-muted)}
+  .body{padding:18px}
+
+  /* forms */
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .f label{display:block;font-size:11px;font-weight:600;letter-spacing:.05em;
+           text-transform:uppercase;color:var(--ink-muted);margin-bottom:4px}
+  .ctl{width:100%;padding:8px 11px;border:1px solid var(--hairline);border-radius:7px;
+       background:var(--surface-1);color:var(--ink-1);font:inherit;font-size:13px}
+  .ctl.sel::after{content:"▾"}
+  .btn{padding:9px 16px;border-radius:8px;border:0;background:var(--t-noul);color:#fff;
+       font:inherit;font-weight:600;font-size:13px;cursor:pointer}
+  .btn.ghost{background:transparent;color:var(--ink-2);border:1px solid var(--hairline)}
+  .btn[disabled]{opacity:.5}
+  .rowend{display:flex;justify-content:space-between;align-items:center;margin-top:16px;
+          padding-top:14px;border-top:1px solid var(--hairline)}
+  .hint{font-size:12.5px;color:var(--ink-2)}
+  .hint b{color:var(--ink-1)}
+
+  /* type pills */
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;
+        letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:5px;
+        border:1px solid var(--border);color:var(--ink-2)}
+  .pill .sw{width:7px;height:7px;border-radius:2px;flex:none}
+  .sw.noul{background:var(--t-noul)}.sw.score{background:var(--t-score)}.sw.choice{background:var(--t-choice)}
+
+  /* tables */
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;font-weight:600;color:var(--ink-muted);font-size:10.5px;
+     letter-spacing:.05em;text-transform:uppercase;padding:0 8px 7px 0;white-space:nowrap}
+  /* keep a gutter: right-aligned numeric cells otherwise collide with the next column */
+  th.n,td.n{text-align:right;font-variant-numeric:tabular-nums;padding-right:14px;padding-left:10px}
+  th:last-child,td:last-child{padding-right:0}
+  td{padding:8px 8px 8px 0;border-top:1px solid var(--hairline);vertical-align:middle}
+  tr.click{cursor:pointer}
+  tr.click:hover td{background:rgba(42,120,214,.05)}
+  .sid{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+  .meter{display:flex;align-items:center;gap:7px;justify-content:flex-end}
+  .track{width:46px;height:6px;border-radius:3px;background:var(--meter-track);overflow:hidden;flex:none}
+  .fill{height:100%;background:var(--meter-fill);border-radius:3px;min-width:3px}
+  .flag{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--warning)}
+  .flagc{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:var(--critical)}
+
+  /* weights */
+  .weights{display:flex;gap:18px;flex-wrap:wrap;padding:12px 18px;background:var(--surface-1);
+           border-bottom:1px solid var(--hairline);align-items:center}
+  .w{display:flex;flex-direction:column;gap:3px;min-width:104px}
+  .w .wl{font-size:10.5px;color:var(--ink-muted);display:flex;justify-content:space-between;gap:8px}
+  .wbar{height:5px;border-radius:3px;background:var(--meter-track);overflow:hidden}
+  .wbar i{display:block;height:100%;background:var(--meter-fill)}
+  .wnote{font-size:11px;color:var(--ink-muted);margin-left:auto;max-width:210px;text-align:right}
+
+  /* drill-down */
+  .split{display:grid;grid-template-columns:1fr 340px}
+  .tx{padding:16px 18px;border-right:1px solid var(--hairline);max-height:340px;overflow-y:auto}
+  .turn{display:flex;gap:9px;margin-bottom:10px;font-size:12.5px}
+  .who{flex:none;width:38px;font-size:10.5px;font-weight:600;letter-spacing:.04em;
+       text-transform:uppercase;color:var(--ink-muted);padding-top:2px}
+  .turn.bot .who{color:var(--t-noul)}
+  .rub{padding:16px 18px}
+  .r{padding:9px 0;border-top:1px solid var(--hairline)}
+  .r:first-child{border-top:0;padding-top:0}
+  .rh{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .rn{font-size:12.5px}
+  .rv{font-weight:600;font-variant-numeric:tabular-nums;font-size:13px}
+  .rd{font-size:11px;color:var(--ink-muted);margin-top:2px}
+
+  /* calibration */
+  .cal{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  .cx{border:1px solid var(--border);border-radius:9px;padding:14px}
+  .cxh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+  .cxt{font-weight:600;font-size:13px}
+  .agree{font-variant-numeric:tabular-nums;font-weight:600}
+  .mx{width:100%;font-size:12px;border-collapse:collapse}
+  .mx td,.mx th{border:1px solid var(--hairline);padding:5px 8px;text-align:center}
+  .mx th{background:transparent;text-transform:none;letter-spacing:0;font-size:11px}
+  .mx td.hit{background:rgba(12,163,12,.10);font-weight:600}
+  .mx td.miss{background:rgba(208,59,59,.10);font-weight:600}
+  .warnbox{display:flex;gap:7px;align-items:flex-start;margin-top:10px;font-size:11.5px;
+           color:var(--ink-2);padding-top:9px;border-top:1px solid var(--hairline)}
+
+  .empty{padding:56px 24px;text-align:center;color:var(--ink-muted)}
+  .empty strong{display:block;color:var(--ink-2);font-size:14px;margin-bottom:4px}
+  .err{display:flex;gap:9px;padding:11px 13px;border-radius:8px;font-size:12.5px;align-items:flex-start;
+       border:1px solid var(--critical);color:var(--ink-1);margin-bottom:10px}
+  .err.warn{border-color:var(--warning)}
+  .err .ic{font-weight:700}
+  .prog{height:6px;border-radius:3px;background:var(--meter-track);overflow:hidden;margin:12px 0 8px}
+  .prog i{display:block;height:100%;background:var(--meter-fill)}
+
+/* ---- additions for the live app (the mockup is static) ---- */
+html, body { height: 100%; }
+body { padding: 0; }
+.app { max-width: 1280px; margin: 0 auto; border-radius: 0; border-top: 0; border-bottom: 0;
+       min-height: 100%; display: flex; flex-direction: column; }
+.view { flex: 1; }
+select.ctl, input.ctl, textarea.ctl { font: inherit; font-size: 13px; }
+textarea.ctl { resize: vertical; line-height: 1.45; }
+.ctl:focus-visible { outline: 2px solid var(--t-noul); outline-offset: 1px; }
+.tab { font: inherit; background: none; border: 0; border-bottom: 2px solid transparent; }
+.brand.link { background: none; border: 0; font: inherit; font-weight: 600; cursor: pointer;
+              color: var(--ink-1); padding: 13px 0; }
+.grid.two { grid-template-columns: 1fr 1fr; }
+
+
+.editor h2 { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+             color: var(--ink-muted); margin: 0 0 12px; }
+.editor .f { margin-bottom: 10px; }
+.type-fields { margin-top: 4px; }
+.w { cursor: pointer; }
+.w input[type=range] { width: 100%; accent-color: var(--meter-fill); margin: 0; }
+tr.sel td { background: rgba(42,120,214,.07); }
+.turn .who { text-transform: uppercase; }
+.turn.system { color: var(--ink-muted); font-style: italic; }
+.turn.system .who { color: var(--ink-muted); }
+.rd code { font-size: 11.5px; }
+@media (max-width: 1000px) {
+  .split { grid-template-columns: 1fr; }
+  .grid { grid-template-columns: 1fr 1fr; }
+  #results-table { overflow-x: auto; }
+}
+
+/* ---- readability fixes found by rendering the real pages ---- */
+
+
+
+/* Weight controls: one row of fixed-width cells truncated every label. A wrapping
+   grid gives each control room for its full name at any rubric count. */
+.weights {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 12px 18px;
+  align-items: start;
+}
+.w { min-width: 0; }
+.w .wl {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  font-size: 11px; color: var(--ink-2); line-height: 1.25; margin-bottom: 4px;
+}
+.w .wl span { overflow-wrap: anywhere; }
+.w .wl b { flex: none; font-variant-numeric: tabular-nums; color: var(--ink-1); }
+.wnote {
+  grid-column: 1 / -1; margin: 0; text-align: left; max-width: none;
+  padding-top: 8px; border-top: 1px solid var(--hairline);
+}
+
+/* Results table: full header names instead of elided ones, scrolling sideways
+   when there are more rubrics than fit, with the session column pinned so a row
+   stays identifiable while scrolling. */
+#results-table { overflow-x: auto; }
+#results-table table { min-width: 100%; }
+/* Values stay on one line; headers wrap, which is what keeps nine rubric columns
+   inside the canvas instead of pushing the review flag off-screen. */
+#results-table td { white-space: nowrap; }
+#results-table th { white-space: normal; vertical-align: bottom; max-width: 104px; line-height: 1.2; }
+#results-table th:first-child, #results-table td:first-child {
+  position: sticky; left: 0; background: var(--surface-1); z-index: 1; padding-right: 12px;
+}
+#results-table tr.click:hover td:first-child { background: #f1f5fa; }
+#results-table td.rd { white-space: normal; }
+/* The review flag rides with the session id so it is never scrolled away. */
+.sidcell { display: flex; align-items: center; gap: 8px; }
+
+/* The transcript pane needs to breathe and to wrap long agent messages. */
+.tx { max-height: none; }
+.turn span:last-child { overflow-wrap: anywhere; }
+
+/* Long session ids overflowed the header on the drill-down. */
+.env { overflow-wrap: anywhere; text-align: right; }
+
+/* Repeated inputs for score levels and choice options: one box per item, added
+   and removed individually, rather than asking the user to format a textarea. */
+.rows { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.row-item { display: grid; gap: 6px; align-items: start; }
+.row-item.level { grid-template-columns: 18px 1fr 28px; }
+/* An option is two lines: a short key and its goodness on the first, the
+   description across the full width on the second. Four columns in a 440px
+   panel clipped every field. */
+.row-item.option {
+  grid-template-columns: 1fr 72px 28px;
+  padding-bottom: 8px; border-bottom: 1px solid var(--hairline);
+}
+.row-item.option .desc { grid-column: 1 / -1; }
+.row-item .idx {
+  font-size: 11px; color: var(--ink-muted); font-variant-numeric: tabular-nums;
+  padding-top: 9px; text-align: right;
+}
+.rows.head {
+  display: grid; grid-template-columns: 1fr 72px 28px; gap: 6px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--ink-muted); margin-bottom: 4px;
+}
+.btn.small { padding: 5px 10px; font-size: 12px; }
+.btn.rm {
+  padding: 0; width: 28px; height: 32px; background: transparent; color: var(--ink-muted);
+  border: 1px solid var(--hairline); border-radius: 7px; font-size: 15px; line-height: 1;
+}
+.btn.rm:hover { color: var(--critical); border-color: var(--critical); }
+
+/* ---- rubrics page: header actions plus a resizable right-hand drawer ---- */
+
+.section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; margin-bottom: 14px;
+}
+.section-head h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.section-actions { display: flex; align-items: center; gap: 12px; }
+
+.scrim {
+  position: fixed; inset: 0; background: rgba(11, 11, 11, .28);
+  z-index: 19; border: 0;
+}
+
+/* Wide enough that an option's three fields sit on one line. The user can drag
+   the left edge to make it wider still, and it closes to give the table the
+   whole window back. */
+.drawer {
+  position: fixed; top: 0; right: 0; bottom: 0;
+  width: min(720px, 94vw); min-width: 380px; max-width: 96vw;
+  background: var(--surface-1); border-left: 1px solid var(--border);
+  box-shadow: -10px 0 30px rgba(11, 11, 11, .10);
+  transform: translateX(101%); transition: transform .18s ease;
+  overflow-y: auto; z-index: 20; resize: horizontal; direction: rtl;
+}
+.drawer > * { direction: ltr; }
+.drawer.open { transform: none; }
+@media (prefers-reduced-motion: reduce) { .drawer { transition: none; } }
+
+.drawer-head {
+  position: sticky; top: 0; z-index: 1; background: var(--surface-1);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 14px 18px; border-bottom: 1px solid var(--hairline);
+}
+.drawer-head h2 {
+  font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-muted); margin: 0;
+}
+.btn.rm.close { width: 30px; height: 30px; font-size: 18px; }
+.editor { padding: 16px 18px 28px; }
+.editor .f { margin-bottom: 14px; }
+
+/* Guidance under a field, so no control has to be guessed at. */
+.help { font-size: 11.5px; color: var(--ink-muted); margin: 5px 0 0; line-height: 1.45; }
+.help b { color: var(--ink-2); }
+
+/* With the drawer this wide, an option fits on one line with every field labelled. */
+.row-item.option {
+  /* Column widths match the header exactly; the remove column is wide enough
+     for its own label rather than being an unexplained icon. */
+  grid-template-columns: 170px 1fr 92px 58px;
+  padding-bottom: 0; border-bottom: 0;
+}
+.row-item.option .desc { grid-column: auto; }
+.rows.head { grid-template-columns: 170px 1fr 92px 58px; }
+.rows.head span:last-child, .row-item.option > *:last-child { text-align: center; }
+.row-item.option .btn.rm { margin: 0 auto; }
+
+/* In a narrowed drawer the description drops to its own line rather than being
+   squeezed out of readability. */
+@media (max-width: 760px) {
+  .row-item.option, .rows.head { grid-template-columns: 1fr 84px 58px; }
+  .row-item.option .desc { grid-column: 1 / -1; order: 1; }
+  .rows.head span:nth-child(2) { display: none; }
+}
+
+/* ---- results: labelled weights, slim table, session drawer ---- */
+
+.weights-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 14px 18px 0;
+}
+.weights-title { display: flex; align-items: center; gap: 8px; }
+.weights-title h2 { font-size: 13px; font-weight: 600; margin: 0; }
+.weights-head .ctl { max-width: 420px; }
+
+.info {
+  width: 18px; height: 18px; border-radius: 50%; flex: none; cursor: pointer;
+  border: 1px solid var(--ink-muted); background: transparent; color: var(--ink-muted);
+  font: inherit; font-size: 11px; font-weight: 700; line-height: 1;
+  font-family: Georgia, serif;
+}
+.info:hover, .info[aria-expanded="true"] { color: var(--ink-1); border-color: var(--ink-1); }
+.weights-info { padding: 0 18px; margin: 8px 0 0; max-width: 72ch; }
+.weights { padding: 12px 18px; }
+
+/* The per-rubric columns are gone: the table carries the overall score and the
+   detail lives in a drawer, which is what removes the truncation problem
+   rather than papering over it. */
+#results-table th, #results-table td { white-space: nowrap; }
+#results-table th { max-width: none; vertical-align: middle; }
+#results-table th:first-child, #results-table td:first-child { position: static; }
+#results-table td.when { color: var(--ink-2); font-variant-numeric: tabular-nums; }
+#results-table td.flow { color: var(--ink-2); max-width: 260px; overflow: hidden;
+                         text-overflow: ellipsis; }
+.meter.wide .track { width: 120px; height: 7px; }
+
+.drawer.wide { width: min(1160px, 96vw); }
+/* The scores need more width than the transcript: each row carries a name, the
+   question behind it and a certainty line, and 380px squeezed all three. */
+.session-split { grid-template-columns: minmax(0, 1fr) 480px; align-items: start; }
+.session-split .tx { border-right: 1px solid var(--hairline); padding: 16px 18px; }
+.session-split .rub { padding: 16px 18px; }
+@media (max-width: 900px) {
+  .session-split { grid-template-columns: 1fr; }
+  .session-split .tx { border-right: 0; border-bottom: 1px solid var(--hairline); }
+}
+
+.results-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+/* Session drawer scores: name and answer, then what was actually asked, then a
+   consistent certainty line whatever the rubric type. */
+.rub-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.rub-head h3 {
+  font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-muted); margin: 0;
+}
+#scores-info { margin: 0 0 12px; }
+.r .rq { font-size: 11.5px; color: var(--ink-2); margin: 3px 0 5px; line-height: 1.4; }
+.r .meta { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 11px;
+           color: var(--ink-muted); }
+.r .certainty { font-variant-numeric: tabular-nums; }
+.r .flag { font-size: 10.5px; }
+
+/* The session drawer holds two panes that scroll independently, so a long score
+   list never pushes the transcript out of view and vice versa. The editor
+   drawer is left scrolling as one piece, because it is a single form. */
+.drawer.wide {
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.drawer.wide .drawer-head { flex: none; }
+.drawer.wide .session-split {
+  flex: 1; min-height: 0; overflow: hidden;
+}
+.drawer.wide .tx,
+.drawer.wide .rub {
+  height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+}
+/* Keep the Scores heading anchored while the list moves. The pane's own top
+   padding has to move onto the sticky header, or content scrolls through the
+   gap above it. */
+.drawer.wide .rub { padding-top: 0; }
+.drawer.wide .rub-head {
+  position: sticky; top: 0; z-index: 1; background: var(--surface-1);
+  padding: 16px 0 8px; margin-bottom: 0;
+  box-shadow: 0 6px 6px -6px rgba(11, 11, 11, .10);
+}
+
+/* ---- breathing room in the scores pane ---- */
+.drawer.wide .rub { padding-inline: 20px; }
+.drawer.wide .r { padding: 15px 0 16px; }
+.drawer.wide .r:first-of-type { padding-top: 4px; }
+.drawer.wide .rh { gap: 16px; align-items: flex-start; }
+.drawer.wide .rn { font-size: 13px; line-height: 1.35; }
+.drawer.wide .rv { font-size: 14px; white-space: nowrap; }
+.drawer.wide .rq { margin: 6px 0 9px; font-size: 12px; line-height: 1.5; }
+.drawer.wide .meta { gap: 9px; font-size: 11.5px; }
+
+/* The transcript is the narrower pane now, so its turns need to wrap cleanly. */
+.drawer.wide .tx { padding: 16px 20px 24px; }
+.drawer.wide .turn { margin-bottom: 12px; line-height: 1.5; }
+
+@media (max-width: 1020px) {
+  .session-split { grid-template-columns: 1fr; }
+  .drawer.wide .tx, .drawer.wide .rub { height: auto; max-height: 50vh; }
+}
+
+/* ---- merged Score view: run controls, then results beneath ---- */
+.run-block { padding-bottom: 20px; }
+.results-sep {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding: 16px 18px 0; border-top: 1px solid var(--hairline);
+}
+.results-sep h2 {
+  font-family: inherit; font-size: 15px; font-weight: 600; margin: 0; letter-spacing: 0;
+  text-transform: none; color: var(--ink-1);
+}
+/* The weights block sits under the Results heading now, so it drops a level. */
+.weights-head { padding-top: 10px; }
+.weights-title h3 {
+  font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-muted); margin: 0;
+}
+
+
+/* ---- additions this feature introduces ---- */
+
+/* Channel label on a session row. Never colour alone: each carries its text. */
+.chan {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  padding: 2px 7px; border-radius: 4px; white-space: nowrap;
+  border: 1px solid var(--border); color: var(--ink-2);
+}
+.chan .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.chan.voice   .dot { background: var(--t-score); }
+.chan.text    .dot { background: var(--t-noul); }
+.chan.panel   .dot { background: var(--ink-muted); }
+.chan.unknown .dot { background: transparent; border: 1px solid var(--ink-muted); }
+.chan.unknown { font-style: italic; }
+
+/* The breakdown-as-filter row under the run controls. */
+.chan-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.chan-filter .lead { font-size: 12.5px; color: var(--ink-2); margin-right: 2px; }
+.chan-toggle {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  font: inherit; font-size: 12.5px; padding: 4px 10px; border-radius: 14px;
+  border: 1px solid var(--hairline); background: var(--surface); color: var(--ink-1);
+}
+.chan-toggle .n { color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.chan-toggle[aria-pressed="false"] { opacity: .45; text-decoration: line-through; }
+.chan-toggle[aria-pressed="true"] { border-color: var(--t-noul); }
+.chan-toggle .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.chan-toggle.voice .dot { background: var(--t-score); }
+.chan-toggle.text  .dot { background: var(--t-noul); }
+.chan-toggle.panel .dot { background: var(--ink-muted); }
+
+.sidcell { gap: 10px; }
+.state-note {
+  font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-muted); margin: 34px 0 8px;
+}
+.state-note .n { font-weight: 400; letter-spacing: 0; text-transform: none; font-size: 12px; }
+body { padding: 28px 16px 80px; }
+.wrap { max-width: 1280px; margin: 0 auto; }
+.card.app { min-height: 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="state-note">A — Run controls <span class="n">the breakdown IS the filter; every label on</span></p>
+<div class="card app"><div class="body run-block">
+  <div class="grid">
+    <div class="f"><label>Project</label><div class="ctl">V2V Experiment - Insurance</div></div>
+    <div class="f"><label>Endpoint</label><div class="ctl">Any</div></div>
+    <div class="f"><label>From</label><div class="ctl">2026-09-14</div></div>
+    <div class="f"><label>To</label><div class="ctl">2026-09-21</div></div>
+  </div>
+  <div class="chan-filter">
+    <span class="lead">Include</span>
+    <button class="chan-toggle voice" aria-pressed="true" type="button"><span class="dot"></span>Voice <span class="n">2</span></button>
+    <button class="chan-toggle text" aria-pressed="true" type="button"><span class="dot"></span>REST API <span class="n">6</span></button>
+    <button class="chan-toggle panel" aria-pressed="true" type="button"><span class="dot"></span>Interaction Panel <span class="n">17</span></button>
+  </div>
+  <div class="rowend">
+    <span class="hint"><b>25 sessions</b> match &#183; 24 already scored &#183; <b>1</b> to score &#183; 310 records</span>
+    <span><span class="btn ghost">Preview</span> <span class="btn">Score sessions</span></span>
+  </div>
+</div></div>
+
+<p class="state-note">B — Narrowed to live traffic <span class="n">Interaction Panel deselected; excluded sessions are never fetched</span></p>
+<div class="card app"><div class="body run-block">
+  <div class="chan-filter">
+    <span class="lead">Include</span>
+    <button class="chan-toggle voice" aria-pressed="true" type="button"><span class="dot"></span>Voice <span class="n">2</span></button>
+    <button class="chan-toggle text" aria-pressed="true" type="button"><span class="dot"></span>REST API <span class="n">6</span></button>
+    <button class="chan-toggle panel" aria-pressed="false" type="button"><span class="dot"></span>Interaction Panel <span class="n">17</span></button>
+  </div>
+  <div class="rowend">
+    <span class="hint"><b>8 sessions</b> match &#183; 3 already scored &#183; <b>5</b> to score &#183; 94 records
+      &#183; <span style="color:var(--ink-muted)">17 excluded by filter, never fetched</span></span>
+    <span><span class="btn ghost">Preview</span> <span class="btn">Score sessions</span></span>
+  </div>
+</div></div>
+
+<p class="state-note">C — A filter matching nothing</p>
+<div class="card app"><div class="body run-block">
+  <div class="chan-filter">
+    <span class="lead">Include</span>
+    <button class="chan-toggle voice" aria-pressed="false" type="button"><span class="dot"></span>Voice <span class="n">2</span></button>
+    <button class="chan-toggle text" aria-pressed="false" type="button"><span class="dot"></span>REST API <span class="n">6</span></button>
+    <button class="chan-toggle panel" aria-pressed="false" type="button"><span class="dot"></span>Interaction Panel <span class="n">17</span></button>
+  </div>
+  <div class="rowend">
+    <span class="hint">No channels selected &#8212; nothing to score. Turn at least one back on.</span>
+    <span><span class="btn ghost">Preview</span> <span class="btn" style="opacity:.5">Score sessions</span></span>
+  </div>
+</div></div>
+
+<p class="state-note">D — Results table <span class="n">label beside the session id, including an unrecognised channel</span></p>
+<div class="card app"><div class="body">
+  <div id="results-table">
+    <table>
+      <thead><tr><th>Session</th><th>Channel</th><th>When</th><th>Endpoint</th>
+        <th class="n">Turns</th><th class="n">Overall</th><th>Review</th></tr></thead>
+      <tbody>
+        <tr class="click"><td class="sid">3a99b160</td>
+          <td><span class="chan voice"><span class="dot"></span>Voice</span></td>
+          <td class="when">9/18/2026, 1:44:02 PM</td><td class="flow">Jev - Suggest Agent Handover</td>
+          <td class="n">21</td>
+          <td class="n"><div class="meter wide"><div class="track"><div class="fill" style="width:92%"></div></div><span>4.6</span></div></td>
+          <td></td></tr>
+        <tr class="click"><td class="sid">c1825438</td>
+          <td><span class="chan text"><span class="dot"></span>REST API</span></td>
+          <td class="when">9/18/2026, 1:57:31 PM</td><td class="flow">Summit Ridge Assistant</td>
+          <td class="n">8</td>
+          <td class="n"><div class="meter wide"><div class="track"><div class="fill" style="width:42%"></div></div><span>2.1</span></div></td>
+          <td><span class="flag">2 low confidence</span></td></tr>
+        <tr class="click"><td class="sid">038a25d7</td>
+          <td><span class="chan panel"><span class="dot"></span>Interaction Panel</span></td>
+          <td class="when">9/18/2026, 2:23:01 PM</td><td class="flow">Jev - Jailbreak Detection</td>
+          <td class="n">4</td>
+          <td class="n"><div class="meter wide"><div class="track"><div class="fill" style="width:46%"></div></div><span>2.3</span></div></td>
+          <td><span class="flag">4 low confidence</span></td></tr>
+        <tr class="click"><td class="sid">7b02fd91</td>
+          <td><span class="chan unknown" title="raw channel value: someNewChannel"><span class="dot"></span>Some New Channel</span></td>
+          <td class="when">9/19/2026, 9:04:12 AM</td><td class="flow">Front Door Agent</td>
+          <td class="n">11</td>
+          <td class="n"><div class="meter wide"><div class="track"><div class="fill" style="width:64%"></div></div><span>3.2</span></div></td>
+          <td></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="rowend"><span class="hint">An unrecognised channel is humanised from its raw value, shown on hover &#8212; never mislabelled.</span></div>
+</div></div>
+
+<p class="state-note">E — Session drawer header <span class="n">label alongside the other session facts</span></p>
+<div class="card app"><div class="drawer-head" style="position:static">
+  <h2 id="session-meta" style="display:flex;align-items:center;gap:10px;letter-spacing:0;text-transform:none;font-size:12px;">
+    3a99b160 <span class="chan voice"><span class="dot"></span>Voice</span>
+    <span style="color:var(--ink-muted)">&#183; 21 turns &#183; Test</span>
+  </h2>
+  <button class="btn rm close" type="button">&times;</button>
+</div></div>
+
+</div>
+</body>
+</html>
