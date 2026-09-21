@@ -11,6 +11,8 @@
  * a 0-1 contribution lives here so weights and polarity can change without
  * re-scoring anything.
  */
+import type { Modality } from '../cognigy/channels.ts';
+
 export type RubricType = 'boolean' | 'score' | 'choice';
 
 /**
@@ -48,6 +50,33 @@ export interface Rubric {
   options?: Record<string, string>;
   /** `choice`: 0-1 goodness per option key, for the composite score. */
   optionScores?: Record<string, number>;
+
+  /**
+   * The only modality this rubric applies to. Absent means every conversation,
+   * which is the normal case — a scope is worth setting only when the question
+   * is meaningless in the other modality, as "did the agent confirm the
+   * spelling" is in a chat window.
+   */
+  appliesTo?: Modality;
+
+  /**
+   * Extra instruction appended to this rubric's question, per modality.
+   *
+   * This is where modality-specific context belongs rather than in the state.
+   * A state field would lean on every rubric in the run whether or not its
+   * author wanted it; an instruction here is explicit, authored and visible in
+   * the logged request.
+   */
+  notes?: Partial<Record<Modality, string>>;
+}
+
+/**
+ * Whether a rubric should be asked of a conversation of this modality.
+ *
+ * An unknown modality is asked everything — see `modalityOf`.
+ */
+export function applies(rubric: Pick<Rubric, 'appliesTo'>, modality: Modality | undefined): boolean {
+  return modality === undefined || rubric.appliesTo === undefined || rubric.appliesTo === modality;
 }
 
 /**

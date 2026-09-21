@@ -7,10 +7,11 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { OdataClient, SessionSummary } from '../cognigy/odata.ts';
+import { modalityOf } from '../cognigy/channels.ts';
 import { assemble, render, type Transcript } from '../cognigy/transcript.ts';
 import { ask } from '../jev.ts';
 import { Ledger } from '../metering.ts';
-import { compile, questionId } from '../rubrics/compile.ts';
+import { applicable, compile, questionId } from '../rubrics/compile.ts';
 import type { Rubric } from '../rubrics/model.ts';
 import { chunkTurns, estimateTokens, stateBudget } from './chunk.ts';
 import { combineAnswers, type ChunkAnswer } from './combine.ts';
@@ -66,7 +67,12 @@ async function scoreTranscript(
   rubrics: Rubric[],
   ledger: Ledger,
 ): Promise<{ results: Omit<ResultRow, 'runId' | 'sessionId'>[]; chunks: number }> {
-  const questions = compile(rubrics);
+  // A rubric can be scoped to one modality, so the set asked of this transcript
+  // is derived once and used both to build the questions and to read the answers
+  // back. Deriving it twice is how the two would drift.
+  const modality = modalityOf(transcript.channelLabel.kind);
+  const asked = applicable(rubrics, modality);
+  const questions = compile(asked, modality);
   const questionTokens = estimateTokens(JSON.stringify(questions));
   const chunks = chunkTurns(transcript.turns, stateBudget(questionTokens));
 
@@ -88,7 +94,7 @@ async function scoreTranscript(
       sessionId: transcript.sessionId,
     });
 
-    for (const rubric of rubrics) {
+    for (const rubric of asked) {
       const answer = readAnswer(rubric, answers as Record<string, unknown>, turns.length);
       if (!answer) continue;
       const list = perRubric.get(rubric.id);
@@ -98,7 +104,7 @@ async function scoreTranscript(
   }
 
   const results: Omit<ResultRow, 'runId' | 'sessionId'>[] = [];
-  for (const rubric of rubrics) {
+  for (const rubric of asked) {
     const answers = perRubric.get(rubric.id);
     if (!answers?.length) continue;
     const combined = combineAnswers(rubric, answers);

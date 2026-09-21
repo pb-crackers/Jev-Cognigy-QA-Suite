@@ -201,6 +201,18 @@ export function validateRubric(value: unknown): string[] {
   if (rubric.type === 'choice' && Object.keys(rubric.options ?? {}).length < 2) {
     problems.push('a choice rubric needs at least two options');
   }
+  if (rubric.appliesTo !== undefined && !['voice', 'text'].includes(rubric.appliesTo)) {
+    problems.push('appliesTo, if given, must be voice or text');
+  }
+  if (rubric.notes !== undefined) {
+    const stray = Object.keys(rubric.notes).filter((key) => key !== 'voice' && key !== 'text');
+    if (stray.length > 0) problems.push(`notes may only be voice or text, not: ${stray.join(', ')}`);
+    // A note for a modality the rubric is scoped away from would never be sent,
+    // which is worth saying rather than silently dropping.
+    if (rubric.appliesTo && rubric.notes[rubric.appliesTo === 'voice' ? 'text' : 'voice']) {
+      problems.push(`a rubric scoped to ${rubric.appliesTo} cannot carry a note for the other modality`);
+    }
+  }
   if (rubric.type === 'choice' && rubric.options) {
     const missing = Object.keys(rubric.options).filter(
       (key) => rubric.optionScores?.[key] === undefined,
