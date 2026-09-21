@@ -1,3 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Channel labels &amp; filter — mockup</title>
+<!--
+  MOCKUP for [[channel-context]]. Primary canvas 1280px.
+  Reuses src/public/app.css verbatim; only the additions this feature needs are
+  declared below, so the mockup cannot drift from the app's tokens.
+
+  Key design decision shown here: the pre-run breakdown and the filter are the
+  SAME control. Counting sessions by label already requires the session list, and
+  that list is free (no Jev calls), so the counts double as the filter rather than
+  sitting beside a second one.
+-->
+<style>
   :root {
     color-scheme: light;
     --surface-1:#fcfcfb; --plane:#f9f9f7; --ink-1:#0b0b0b; --ink-2:#52514e;
@@ -431,9 +448,10 @@ tr.sel td { background: rgba(42,120,214,.07); }
   color: var(--ink-muted); margin: 0;
 }
 
-/* ---- channel labels and the breakdown-as-filter row ---- */
 
-/* A label never relies on colour: the dot is a secondary cue beside the text. */
+/* ---- additions this feature introduces ---- */
+
+/* Channel label on a session row. Never colour alone: each carries its text. */
 .chan {
   display: inline-flex; align-items: center; gap: 5px; flex: none;
   font-size: 11px; font-weight: 600; letter-spacing: .02em;
@@ -447,11 +465,8 @@ tr.sel td { background: rgba(42,120,214,.07); }
 .chan.unknown .dot { background: transparent; border: 1px solid var(--ink-muted); }
 .chan.unknown { font-style: italic; }
 
-/* The counts are the filter: a separate widget beside them would be redundant. */
-.chan-filter {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hairline);
-}
+/* The breakdown-as-filter row under the run controls. */
+.chan-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .chan-filter .lead { font-size: 12.5px; color: var(--ink-2); margin-right: 2px; }
 .chan-toggle {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
@@ -461,12 +476,120 @@ tr.sel td { background: rgba(42,120,214,.07); }
 .chan-toggle .n { color: var(--ink-muted); font-variant-numeric: tabular-nums; }
 .chan-toggle[aria-pressed="false"] { opacity: .45; text-decoration: line-through; }
 .chan-toggle[aria-pressed="true"] { border-color: var(--t-noul); }
-.chan-toggle:focus-visible { outline: 2px solid var(--t-noul); outline-offset: 1px; }
 .chan-toggle .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .chan-toggle.voice .dot { background: var(--t-score); }
 .chan-toggle.text  .dot { background: var(--t-noul); }
 .chan-toggle.panel .dot { background: var(--ink-muted); }
-.chan-toggle.unknown .dot { background: transparent; border: 1px solid var(--ink-muted); }
 
-/* The drawer header now holds a chip beside its text. */
-.drawer-head h2 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sidcell { gap: 10px; }
+.state-note {
+  font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-muted); margin: 34px 0 8px;
+}
+.state-note .n { font-weight: 400; letter-spacing: 0; text-transform: none; font-size: 12px; }
+body { padding: 28px 16px 80px; }
+.wrap { max-width: 1280px; margin: 0 auto; }
+.card.app { min-height: 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<p class="state-note">A — Run controls <span class="n">the breakdown IS the filter; every label on</span></p>
+<div class="card app"><div class="body run-block">
+  <div class="grid">
+    <div class="f"><label>Project</label><div class="ctl">V2V Experiment - Insurance</div></div>
+    <div class="f"><label>Endpoint</label><div class="ctl">Any</div></div>
+    <div class="f"><label>From</label><div class="ctl">2026-09-14</div></div>
+    <div class="f"><label>To</label><div class="ctl">2026-09-21</div></div>
+  </div>
+  <div class="chan-filter">
+    <span class="lead">Include</span>
+    <button class="chan-toggle voice" aria-pressed="true" type="button"><span class="dot"></span>Voice <span class="n">2</span></button>
+    <button class="chan-toggle text" aria-pressed="true" type="button"><span class="dot"></span>REST API <span class="n">6</span></button>
+    <button class="chan-toggle panel" aria-pressed="true" type="button"><span class="dot"></span>Interaction Panel <span class="n">17</span></button>
+  </div>
+  <div class="rowend">
+    <span class="hint"><b>25 sessions</b> match &#183; 24 already scored &#183; <b>1</b> to score &#183; 310 records</span>
+    <span><span class="btn ghost">Preview</span> <span class="btn">Score sessions</span></span>
+  </div>
+</div></div>
+
+<p class="state-note">B — Narrowed to live traffic <span class="n">Interaction Panel deselected; excluded sessions are never fetched</span></p>
+<div class="card app"><div class="body run-block">
+  <div class="chan-filter">
+    <span class="lead">Include</span>
+    <button class="chan-toggle voice" aria-pressed="true" type="button"><span class="dot"></span>Voice <span class="n">2</span></button>
+    <button class="chan-toggle text" aria-pressed="true" type="button"><span class="dot"></span>REST API <span class="n">6</span></button>
+    <button class="chan-toggle panel" aria-pressed="false" type="button"><span class="dot"></span>Interaction Panel <span class="n">17</span></button>
+  </div>
+  <div class="rowend">
+    <span class="hint"><b>8 sessions</b> match &#183; 3 already scored &#183; <b>5</b> to score &#183; 94 records
+      &#183; <span style="color:var(--ink-muted)">17 excluded by filter, never fetched</span></span>
+    <span><span class="btn ghost">Preview</span> <span class="btn">Score sessions</span></span>
+  </div>
+</div></div>
+
+<p class="state-note">C — A filter matching nothing</p>
+<div class="card app"><div class="body run-block">
+  <div class="chan-filter">
+    <span class="lead">Include</span>
+    <button class="chan-toggle voice" aria-pressed="false" type="button"><span class="dot"></span>Voice <span class="n">2</span></button>
+    <button class="chan-toggle text" aria-pressed="false" type="button"><span class="dot"></span>REST API <span class="n">6</span></button>
+    <button class="chan-toggle panel" aria-pressed="false" type="button"><span class="dot"></span>Interaction Panel <span class="n">17</span></button>
+  </div>
+  <div class="rowend">
+    <span class="hint">No channels selected &#8212; nothing to score. Turn at least one back on.</span>
+    <span><span class="btn ghost">Preview</span> <span class="btn" style="opacity:.5">Score sessions</span></span>
+  </div>
+</div></div>
+
+<p class="state-note">D — Results table <span class="n">label beside the session id, including an unrecognised channel</span></p>
+<div class="card app"><div class="body">
+  <div id="results-table">
+    <table>
+      <thead><tr><th>Session</th><th>Channel</th><th>When</th><th>Endpoint</th>
+        <th class="n">Turns</th><th class="n">Overall</th><th>Review</th></tr></thead>
+      <tbody>
+        <tr class="click"><td class="sid">3a99b160</td>
+          <td><span class="chan voice"><span class="dot"></span>Voice</span></td>
+          <td class="when">9/18/2026, 1:44:02 PM</td><td class="flow">Jev - Suggest Agent Handover</td>
+          <td class="n">21</td>
+          <td class="n"><div class="meter wide"><div class="track"><div class="fill" style="width:92%"></div></div><span>4.6</span></div></td>
+          <td></td></tr>
+        <tr class="click"><td class="sid">c1825438</td>
+          <td><span class="chan text"><span class="dot"></span>REST API</span></td>
+          <td class="when">9/18/2026, 1:57:31 PM</td><td class="flow">Summit Ridge Assistant</td>
+          <td class="n">8</td>
+          <td class="n"><div class="meter wide"><div class="track"><div class="fill" style="width:42%"></div></div><span>2.1</span></div></td>
+          <td><span class="flag">2 low confidence</span></td></tr>
+        <tr class="click"><td class="sid">038a25d7</td>
+          <td><span class="chan panel"><span class="dot"></span>Interaction Panel</span></td>
+          <td class="when">9/18/2026, 2:23:01 PM</td><td class="flow">Jev - Jailbreak Detection</td>
+          <td class="n">4</td>
+          <td class="n"><div class="meter wide"><div class="track"><div class="fill" style="width:46%"></div></div><span>2.3</span></div></td>
+          <td><span class="flag">4 low confidence</span></td></tr>
+        <tr class="click"><td class="sid">7b02fd91</td>
+          <td><span class="chan unknown" title="raw channel value: someNewChannel"><span class="dot"></span>Some New Channel</span></td>
+          <td class="when">9/19/2026, 9:04:12 AM</td><td class="flow">Front Door Agent</td>
+          <td class="n">11</td>
+          <td class="n"><div class="meter wide"><div class="track"><div class="fill" style="width:64%"></div></div><span>3.2</span></div></td>
+          <td></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="rowend"><span class="hint">An unrecognised channel is humanised from its raw value, shown on hover &#8212; never mislabelled.</span></div>
+</div></div>
+
+<p class="state-note">E — Session drawer header <span class="n">label alongside the other session facts</span></p>
+<div class="card app"><div class="drawer-head" style="position:static">
+  <h2 id="session-meta" style="display:flex;align-items:center;gap:10px;letter-spacing:0;text-transform:none;font-size:12px;">
+    3a99b160 <span class="chan voice"><span class="dot"></span>Voice</span>
+    <span style="color:var(--ink-muted)">&#183; 21 turns &#183; Test</span>
+  </h2>
+  <button class="btn rm close" type="button">&times;</button>
+</div></div>
+
+</div>
+</body>
+</html>

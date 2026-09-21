@@ -29,6 +29,8 @@ export interface ScoreOptions {
   to: string;
   /** Endpoint name, "interaction-panel" for no endpoint, or omitted for any. */
   endpoint?: string;
+  /** Raw channel values to include; omitted means every channel. */
+  channels?: string[];
   limit: number;
   skipScored: boolean;
 }
@@ -103,6 +105,7 @@ export async function score(
       projectId: project.id,
       projectName: project.name,
       endpointName,
+      channels: options.channels,
       from: options.from,
       to: options.to,
       limit: options.limit,

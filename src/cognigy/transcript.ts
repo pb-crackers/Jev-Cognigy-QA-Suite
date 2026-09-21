@@ -12,6 +12,7 @@
  * system lines rather than being discarded.
  */
 import type { ConversationRecord } from './odata.ts';
+import { labelFor, type ChannelLabel } from './channels.ts';
 
 export type Role = 'user' | 'agent' | 'system';
 
@@ -32,6 +33,8 @@ export interface Transcript {
   /** Endpoint name, or "Interaction Panel" when the session had no endpoint. */
   endpointLabel: string;
   channel: string | null;
+  /** The channel resolved for display: raw value, readable label, and grouping. */
+  channelLabel: ChannelLabel;
   flowName: string | null;
   rating: number | null;
   ratingComment: string | null;
@@ -195,6 +198,7 @@ export function assemble(
     turns,
     endpointLabel: first?.endpointName ?? INTERACTION_PANEL,
     channel: first?.channel ?? null,
+    channelLabel: labelFor(first?.channel),
     flowName: records.find((record) => record.flowName)?.flowName ?? null,
     rating: rated?.rating ?? null,
     ratingComment: rated?.ratingComment ?? null,
