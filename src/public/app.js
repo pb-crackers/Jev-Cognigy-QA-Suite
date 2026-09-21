@@ -47,9 +47,7 @@ function show(view) {
 
 $('tabs').addEventListener('click', (event) => {
   const tab = event.target.closest('.tab');
-  if (!tab) return;
-  show(tab.dataset.view);
-  if (tab.dataset.view === 'results') void loadRuns();
+  if (tab) show(tab.dataset.view);
 });
 
 // ---------- rubric editor drawer ----------
@@ -217,7 +215,9 @@ $('btn-run').addEventListener('click', async () => {
           `Scored ${data.sessions} session${data.sessions === 1 ? '' : 's'} · ` +
           `${usd(data.costUsd)} · ${(data.ms / 1000).toFixed(1)}s`;
         await loadRuns(data.id);
-        show('results');
+        // Results live under the form now, so bring them into view instead of
+        // sending the user somewhere else to find them.
+        $('results-region').scrollIntoView({ behavior: 'smooth', block: 'start' });
       } else if (name === 'failed') {
         showError('run-error', data.error);
       }
@@ -571,14 +571,10 @@ async function loadRuns(selectId) {
     select.append(new Option(`${run.projectName} · ${run.endpointLabel} · ${when}`, run.id));
   }
   if (runs.length === 0) {
-    const empty = el('div', 'empty');
-    empty.append(
-      el('strong', null, 'No runs yet'),
-      el('span', null, 'Score a batch on the Run tab to see results here.'),
-    );
-    $('results-table').replaceChildren(empty);
+    $('results-region').hidden = true;
     return;
   }
+  $('results-region').hidden = false;
   select.value = selectId ?? runs[0].id;
   await loadRun(select.value);
 }
@@ -746,3 +742,6 @@ if (config.projectId && projects.some((project) => project.id === config.project
 await loadEndpoints();
 renderRubrics();
 void preview();
+// Show the most recent run straight away: a tool that opens on an empty form
+// tells you nothing about what it does.
+void loadRuns();
