@@ -23,6 +23,8 @@ export interface RunRequest {
   endpointName?: string | null;
   from: string;
   to: string;
+  /** Raw channel values to include; omitted means every channel. */
+  channels?: readonly string[];
   limit: number;
   skipScored: boolean;
 }
@@ -131,6 +133,7 @@ export async function executeRun(
     from: request.from,
     to: request.to,
     endpointName: request.endpointName,
+    channels: request.channels,
     limit: request.limit,
   });
 
@@ -173,6 +176,7 @@ export async function executeRun(
       startedAt: transcript.turns[0]?.at ?? summary.startedAt,
       endpointLabel: transcript.endpointLabel,
       channel: transcript.channel,
+      channelLabel: transcript.channelLabel.label,
       flowName: transcript.flowName,
       turns: transcript.turns.length,
       chunks,

@@ -24,6 +24,9 @@ const json = async (url, options) => {
 
 const state = {
   projects: [],
+  /** Channel breakdown from the last preview, and which labels are switched on. */
+  channels: [],
+  excluded: new Set(),
   rubrics: [],
   run: null,
   sessions: [],
@@ -32,6 +35,21 @@ const state = {
 };
 
 const TYPE_CLASS = { boolean: 'noul', score: 'score', choice: 'choice' };
+/** Kinds for the labels the server can produce, so a chip styles without a round trip. */
+const KIND_BY_LABEL = new Map([
+  ['Voice', 'voice'],
+  ['Interaction Panel', 'panel'],
+  ['REST API', 'text'],
+  ['Webchat', 'text'],
+  ['WhatsApp', 'text'],
+  ['Facebook', 'text'],
+  ['Microsoft Teams', 'text'],
+  ['Slack', 'text'],
+  ['Genesys', 'text'],
+  ['Twilio', 'text'],
+  ['Socket.IO', 'text'],
+  ['Webhook', 'text'],
+]);
 const TYPE_LABEL = { boolean: 'True/false', score: 'Score', choice: 'Choice' };
 
 // ---------- navigation ----------
@@ -108,6 +126,45 @@ function isoEnd(value) {
   return `${value}T23:59:59Z`;
 }
 
+/** Raw channel values for every label currently switched on, or undefined for all. */
+function selectedChannels() {
+  if (state.channels.length === 0 || state.excluded.size === 0) return undefined;
+  return state.channels
+    .filter((entry) => !state.excluded.has(entry.label))
+    .flatMap((entry) => entry.raws);
+}
+
+function renderChannelFilter() {
+  const box = $('chan-filter');
+  box.replaceChildren(el('span', 'lead', 'Include'));
+
+  if (state.channels.length === 0) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+
+  for (const entry of state.channels) {
+    const on = !state.excluded.has(entry.label);
+    const button = el('button', `chan-toggle ${entry.kind}`);
+    button.type = 'button';
+    button.setAttribute('aria-pressed', String(on));
+    if (!entry.known) button.title = `Unrecognised channel: ${entry.raws.join(', ')}`;
+    button.append(
+      el('span', 'dot'),
+      document.createTextNode(entry.label),
+      el('span', 'n', String(entry.sessions)),
+    );
+    button.addEventListener('click', () => {
+      if (state.excluded.has(entry.label)) state.excluded.delete(entry.label);
+      else state.excluded.add(entry.label);
+      renderChannelFilter();
+      void preview();
+    });
+    box.append(button);
+  }
+}
+
 function runRequest() {
   const project = state.projects.find((candidate) => candidate.id === $('project').value);
   const endpoint = $('endpoint').value;
@@ -115,6 +172,7 @@ function runRequest() {
     projectId: project?.id,
     projectName: project?.name ?? '',
     endpointName: endpoint === '*' ? undefined : endpoint === '' ? null : endpoint,
+    channels: selectedChannels(),
     from: isoStart($('from').value),
     to: isoEnd($('to').value),
     limit: Number($('limit').value),
@@ -146,14 +204,23 @@ async function preview() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(request),
     });
+    state.channels = result.byChannel ?? [];
+    renderChannelFilter();
+
     const parts = [
       `${result.matched} session${result.matched === 1 ? '' : 's'} match`,
       result.alreadyScored ? `${result.alreadyScored} already scored` : null,
       `${result.toScore} to score`,
       `${result.records} records`,
       result.masked ? `${result.masked} masked` : null,
+      result.excludedByChannel
+        ? `${result.excludedByChannel} excluded by filter, never fetched`
+        : null,
     ].filter(Boolean);
-    $('preview').textContent = parts.join(' · ');
+    $('preview').textContent =
+      state.channels.length > 0 && state.excluded.size === state.channels.length
+        ? 'No channels selected — nothing to score. Turn at least one back on.'
+        : parts.join(' · ');
     $('btn-run').disabled = result.toScore === 0;
   } catch (error) {
     $('preview').textContent = '';
@@ -168,6 +235,20 @@ function showError(target, message, kind = '') {
 }
 
 $('btn-preview').addEventListener('click', () => void preview());
+
+// Changing the range used to leave the previous range's counts on screen. That
+// was cosmetic while the count was a sentence; now that the counts are the
+// filter, a stale one would exclude the wrong sessions. Debounced so typing a
+// date does not fire a query per keystroke.
+let previewTimer;
+const schedulePreview = () => {
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(() => void preview(), 400);
+};
+for (const id of ['from', 'to', 'limit']) {
+  $(id).addEventListener('change', schedulePreview);
+  $(id).addEventListener('input', schedulePreview);
+}
 $('project').addEventListener('change', async () => {
   await loadEndpoints();
   await preview();
@@ -484,6 +565,22 @@ function renderWeights() {
   box.append(note);
 }
 
+/** The channel label for a stored session, falling back to its raw value. */
+function channelChip(session) {
+  const label = session.channelLabel ?? session.channel ?? 'Unknown';
+  const kind = KIND_BY_LABEL.get(label) ?? (session.channelLabel ? 'text' : 'unknown');
+  const chip = el('span', `chan ${kind}`);
+  chip.append(el('span', 'dot'), document.createTextNode(label));
+  if (session.channel && session.channel !== label) chip.title = `channel: ${session.channel}`;
+  return chip;
+}
+
+function channelCell(session) {
+  const cell = el('td');
+  cell.append(channelChip(session));
+  return cell;
+}
+
 function rawLabel(rubric, result) {
   if (rubric.type === 'boolean') return Number(result.raw) >= 0.5 ? 'yes' : 'no';
   if (rubric.type === 'score') return Number(result.raw).toFixed(1);
@@ -499,6 +596,7 @@ function renderTable() {
   const head = el('tr');
   head.append(
     el('th', null, 'Session'),
+    el('th', null, 'Channel'),
     el('th', null, 'When'),
     el('th', null, 'Endpoint'),
     el('th', 'n', 'Turns'),
@@ -512,6 +610,7 @@ function renderTable() {
   for (const { session, score } of scored) {
     const tr = el('tr', 'click');
     tr.append(el('td', 'sid', session.sessionId.slice(0, 8)));
+    tr.append(channelCell(session));
     tr.append(el('td', 'when', new Date(session.startedAt).toLocaleString()));
     tr.append(el('td', 'flow', session.flowName ?? session.endpointLabel));
     tr.append(el('td', 'n', String(session.turns)));
@@ -638,9 +737,15 @@ $('btn-download-brief').addEventListener('click', async () => {
 function openSession(session) {
   if (session.unscoreable) return;
 
-  $('session-meta').textContent =
-    `${session.sessionId.slice(0, 8)} · ${session.turns} turns · ${session.endpointLabel}` +
-    (session.chunks > 1 ? ` · split into ${session.chunks} chunks` : '');
+  const meta = $('session-meta');
+  meta.replaceChildren(
+    document.createTextNode(`${session.sessionId.slice(0, 8)} `),
+    channelChip(session),
+    document.createTextNode(
+      ` · ${session.turns} turns · ${session.endpointLabel}` +
+        (session.chunks > 1 ? ` · split into ${session.chunks} chunks` : ''),
+    ),
+  );
 
   const transcript = $('session-transcript');
   transcript.replaceChildren();

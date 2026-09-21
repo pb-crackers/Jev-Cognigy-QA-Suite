@@ -430,3 +430,43 @@ tr.sel td { background: rgba(42,120,214,.07); }
   font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
   color: var(--ink-muted); margin: 0;
 }
+
+/* ---- channel labels and the breakdown-as-filter row ---- */
+
+/* A label never relies on colour: the dot is a secondary cue beside the text. */
+.chan {
+  display: inline-flex; align-items: center; gap: 5px; flex: none;
+  font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  padding: 2px 7px; border-radius: 4px; white-space: nowrap;
+  border: 1px solid var(--border); color: var(--ink-2);
+}
+.chan .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.chan.voice   .dot { background: var(--t-score); }
+.chan.text    .dot { background: var(--t-noul); }
+.chan.panel   .dot { background: var(--ink-muted); }
+.chan.unknown .dot { background: transparent; border: 1px solid var(--ink-muted); }
+.chan.unknown { font-style: italic; }
+
+/* The counts are the filter: a separate widget beside them would be redundant. */
+.chan-filter {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hairline);
+}
+.chan-filter .lead { font-size: 12.5px; color: var(--ink-2); margin-right: 2px; }
+.chan-toggle {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  font: inherit; font-size: 12.5px; padding: 4px 10px; border-radius: 14px;
+  border: 1px solid var(--hairline); background: var(--surface); color: var(--ink-1);
+}
+.chan-toggle .n { color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.chan-toggle[aria-pressed="false"] { opacity: .45; text-decoration: line-through; }
+.chan-toggle[aria-pressed="true"] { border-color: var(--t-noul); }
+.chan-toggle:focus-visible { outline: 2px solid var(--t-noul); outline-offset: 1px; }
+.chan-toggle .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.chan-toggle.voice .dot { background: var(--t-score); }
+.chan-toggle.text  .dot { background: var(--t-noul); }
+.chan-toggle.panel .dot { background: var(--ink-muted); }
+.chan-toggle.unknown .dot { background: transparent; border: 1px solid var(--ink-muted); }
+
+/* The drawer header now holds a chip beside its text. */
+.drawer-head h2 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

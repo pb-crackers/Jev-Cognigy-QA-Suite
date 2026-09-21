@@ -30,6 +30,8 @@ export interface SessionRow {
   startedAt: string;
   endpointLabel: string;
   channel: string | null;
+  /** The readable label at the time of the run; the raw value above is the fact. */
+  channelLabel: string | null;
   flowName: string | null;
   turns: number;
   chunks: number;
@@ -65,7 +67,7 @@ CREATE TABLE IF NOT EXISTS run (
 );
 CREATE TABLE IF NOT EXISTS session (
   run_id TEXT NOT NULL, session_id TEXT NOT NULL, started_at TEXT NOT NULL,
-  endpoint_label TEXT NOT NULL, channel TEXT, flow_name TEXT,
+  endpoint_label TEXT NOT NULL, channel TEXT, channel_label TEXT, flow_name TEXT,
   turns INTEGER NOT NULL, chunks INTEGER NOT NULL,
   rating INTEGER, rating_comment TEXT, unscoreable TEXT,
   transcript TEXT NOT NULL, cost_usd REAL NOT NULL, ms INTEGER NOT NULL,
@@ -86,6 +88,21 @@ export class Store {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     this.#db = new DatabaseSync(path);
     this.#db.exec(SCHEMA);
+    this.#migrate();
+  }
+
+  /**
+   * Columns added after a database already exists. `CREATE TABLE IF NOT EXISTS`
+   * leaves an existing table alone, so a new column has to be added explicitly;
+   * SQLite has no `ADD COLUMN IF NOT EXISTS`, hence the check against the
+   * table's own schema.
+   */
+  #migrate(): void {
+    const columns = this.#db.prepare('PRAGMA table_info(session)').all() as { name: string }[];
+    const names = new Set(columns.map((column) => column.name));
+    if (!names.has('channel_label')) {
+      this.#db.exec('ALTER TABLE session ADD COLUMN channel_label TEXT');
+    }
   }
 
   close(): void {
@@ -157,16 +174,17 @@ export class Store {
     this.#db
       .prepare(
         `INSERT INTO session (run_id, session_id, started_at, endpoint_label, channel,
-           flow_name, turns, chunks, rating, rating_comment, unscoreable, transcript,
-           cost_usd, ms)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           channel_label, flow_name, turns, chunks, rating, rating_comment, unscoreable,
+           transcript, cost_usd, ms)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(run_id, session_id) DO UPDATE SET
            turns = excluded.turns, chunks = excluded.chunks,
            transcript = excluded.transcript, cost_usd = excluded.cost_usd, ms = excluded.ms`,
       )
       .run(
         session.runId, session.sessionId, session.startedAt, session.endpointLabel,
-        session.channel, session.flowName, session.turns, session.chunks,
+        session.channel, session.channelLabel ?? null, session.flowName,
+        session.turns, session.chunks,
         session.rating, session.ratingComment, session.unscoreable,
         session.transcript, session.costUsd, session.ms,
       );
@@ -192,7 +210,8 @@ export class Store {
       .all(runId) as Record<string, never>[];
     return rows.map((row) => ({
       runId: row.run_id, sessionId: row.session_id, startedAt: row.started_at,
-      endpointLabel: row.endpoint_label, channel: row.channel, flowName: row.flow_name,
+      endpointLabel: row.endpoint_label, channel: row.channel,
+      channelLabel: row.channel_label, flowName: row.flow_name,
       turns: row.turns, chunks: row.chunks, rating: row.rating,
       ratingComment: row.rating_comment, unscoreable: row.unscoreable,
       transcript: row.transcript, costUsd: row.cost_usd, ms: row.ms,

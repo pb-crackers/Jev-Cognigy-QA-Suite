@@ -161,6 +161,38 @@ describe('a scoring run', () => {
     store.close();
   });
 
+  it('sends exactly the state it always has, and nothing about the channel', async () => {
+    // Jev is not deterministic — three byte-identical requests were measured
+    // varying 4 of 9 rubrics, frustration by 0.22 — so re-scoring and diffing
+    // answers cannot prove a change was score-neutral. The payload can be
+    // proved instead, which is what this asserts: adding channel labelling and
+    // filtering must not alter what the model is asked.
+    const store = new Store(':memory:');
+    store.seedRubrics(DEFAULT_RUBRICS);
+    const before = api.requests.length;
+
+    await executeRun(
+      { projectId: 'p', projectName: 'P', from: 'a', to: 'b', limit: 1, skipScored: false,
+        channels: ['someChannel'] },
+      { odata: fakeOdata(SHORT), store, rubrics: store.rubrics() },
+    );
+
+    assert.equal(api.requests.length - before, 1);
+    const state = api.requests.at(-1)!.state as Record<string, unknown>;
+
+    assert.deepEqual(
+      Object.keys(state).sort(),
+      ['conversation', 'flow'],
+      'the state carries the transcript and the flow, and nothing else',
+    );
+    assert.equal(typeof state.conversation, 'string');
+    const serialised = JSON.stringify(state);
+    for (const leaked of ['channel', 'Channel', 'Voice', 'Interaction Panel', 'someChannel']) {
+      assert.ok(!serialised.includes(leaked), `state must not mention ${leaked}`);
+    }
+    store.close();
+  });
+
   it('refuses to run with no rubrics enabled', async () => {
     const store = new Store(':memory:');
     await assert.rejects(

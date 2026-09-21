@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { CognigyApi } from './cognigy/api.ts';
 import { OdataClient } from './cognigy/odata.ts';
 import { INTERACTION_PANEL } from './cognigy/transcript.ts';
+import { labelFor } from './cognigy/channels.ts';
 import { llmEquivalents } from './metering.ts';
 import { DEFAULT_RUBRICS } from './rubrics/defaults.ts';
 import { inferCombine, type Rubric } from './rubrics/model.ts';
@@ -108,33 +109,62 @@ export function createApp(deps: Deps) {
       if (url.pathname === '/api/preview' && request.method === 'POST') {
         const body = await readJson<{
           projectId: string; from: string; to: string;
-          endpointName?: string | null; limit?: number; skipScored?: boolean;
+          endpointName?: string | null; channels?: string[];
+          limit?: number; skipScored?: boolean;
         }>(request);
         if (!body.projectId) return send(400, { error: 'projectId is required' });
 
-        const sessions = await odata.sessions({
+        // Counted unfiltered, so the breakdown can offer every channel present —
+        // including the ones currently switched off. Listing sessions costs
+        // nothing; it is fetching and scoring them that does.
+        const all = await odata.sessions({
           projectId: body.projectId,
           from: body.from,
           to: body.to,
           endpointName: body.endpointName,
           limit: body.limit ?? 100,
         });
+
+        const byLabel = new Map<string, {
+          label: string; kind: string; known: boolean; raws: Set<string>; sessions: number;
+        }>();
+        for (const session of all) {
+          const resolved = labelFor(session.channel);
+          const entry = byLabel.get(resolved.label) ?? {
+            label: resolved.label, kind: resolved.kind, known: resolved.known,
+            raws: new Set<string>(), sessions: 0,
+          };
+          entry.raws.add(resolved.raw);
+          entry.sessions++;
+          byLabel.set(resolved.label, entry);
+        }
+
+        const selected = body.channels;
+        const included = selected
+          ? all.filter((session) => selected.includes(labelFor(session.channel).raw))
+          : all;
+
         const seen = body.skipScored ? store.alreadyScored(body.projectId) : new Set<string>();
-        const fresh = sessions.filter((session) => !seen.has(session.sessionId));
+        const fresh = included.filter((session) => !seen.has(session.sessionId));
 
         return send(200, {
-          matched: sessions.length,
-          alreadyScored: sessions.length - fresh.length,
+          matched: included.length,
+          excludedByChannel: all.length - included.length,
+          alreadyScored: included.length - fresh.length,
           toScore: fresh.length,
-          masked: sessions.filter((session) => session.masked).length,
-          records: sessions.reduce((sum, session) => sum + session.records, 0),
+          masked: included.filter((session) => session.masked).length,
+          records: included.reduce((sum, session) => sum + session.records, 0),
+          byChannel: [...byLabel.values()]
+            .map((entry) => ({ ...entry, raws: [...entry.raws] }))
+            .sort((a, b) => b.sessions - a.sessions),
         });
       }
 
       if (url.pathname === '/api/run' && request.method === 'POST') {
         const body = await readJson<{
           projectId: string; projectName: string; from: string; to: string;
-          endpointName?: string | null; limit?: number; skipScored?: boolean;
+          endpointName?: string | null; channels?: string[];
+          limit?: number; skipScored?: boolean;
         }>(request);
         if (!body.projectId) return send(400, { error: 'projectId is required' });
 
@@ -154,6 +184,7 @@ export function createApp(deps: Deps) {
               from: body.from,
               to: body.to,
               endpointName: body.endpointName,
+              channels: body.channels,
               limit: body.limit ?? 100,
               skipScored: body.skipScored !== false,
             },

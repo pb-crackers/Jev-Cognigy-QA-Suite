@@ -27,6 +27,8 @@ export interface ConversationRecord {
   isMasked: boolean | null;
 }
 
+import { channelClause } from './channels.ts';
+
 /** Cap on in-flight requests, matching Cognigy's concurrency limit. */
 const MAX_CONCURRENT = 4;
 const MAX_RETRIES = 4;
@@ -123,6 +125,12 @@ export class OdataClient {
     to: string;
     /** Endpoint name, `null` for Interaction Panel only, or undefined for any. */
     endpointName?: string | null;
+    /**
+     * Raw `channel` values to include. Omitted means every channel. Applied here,
+     * in session discovery, so an excluded session is never fetched, never
+     * assembled and never scored.
+     */
+    channels?: readonly string[];
     limit: number;
   }): Promise<SessionSummary[]> {
     const clauses = [
@@ -134,6 +142,9 @@ export class OdataClient {
     else if (options.endpointName !== undefined) {
       clauses.push(`endpointName eq ${odataString(options.endpointName)}`);
     }
+
+    const channels = options.channels ? channelClause(options.channels) : undefined;
+    if (channels) clauses.push(channels);
 
     const byId = new Map<string, SessionSummary>();
 

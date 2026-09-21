@@ -297,6 +297,24 @@ describe('configuration', () => {
 });
 
 describe('storage and re-weighting', () => {
+  it('stores a session whose optional label was omitted, rather than throwing', () => {
+    const store = new Store(':memory:');
+    store.saveRun({
+      id: 'r', startedAt: 'now', projectId: 'p', projectName: 'P', endpointLabel: 'Any',
+      fromTs: 'a', toTs: 'b', sessions: 1, costUsd: 0, ms: 0,
+    });
+    store.saveSession(
+      {
+        runId: 'r', sessionId: 's', startedAt: 'now', endpointLabel: 'Web', channel: 'rest',
+        flowName: null, turns: 1, chunks: 1, rating: null, ratingComment: null,
+        unscoreable: null, transcript: '[]', costUsd: 0, ms: 0,
+      } as never,
+      [],
+    );
+    assert.equal(store.sessionsForRun('r')[0].channelLabel, null);
+    store.close();
+  });
+
   it('seeds the starter set only into an empty library', () => {
     const store = new Store(':memory:');
     assert.equal(store.seedRubrics(DEFAULT_RUBRICS), true);
@@ -317,7 +335,7 @@ describe('storage and re-weighting', () => {
     store.saveSession(
       {
         runId: 'run1', sessionId: 's1', startedAt: 'now', endpointLabel: 'Web',
-        channel: 'rest', flowName: 'F', turns: 4, chunks: 1, rating: null,
+        channel: 'rest', channelLabel: 'REST API', flowName: 'F', turns: 4, chunks: 1, rating: null,
         ratingComment: null, unscoreable: null, transcript: '[]', costUsd: 0, ms: 0,
       },
       [
@@ -349,7 +367,7 @@ describe('storage and re-weighting', () => {
     store.saveSession(
       {
         runId: 'r', sessionId: 's', startedAt: 'now', endpointLabel: 'Web', channel: null,
-        flowName: null, turns: 2, chunks: 1, rating: null, ratingComment: null,
+        channelLabel: null, flowName: null, turns: 2, chunks: 1, rating: null, ratingComment: null,
         unscoreable: null, transcript: '[]', costUsd: 0, ms: 0,
       },
       [{ runId: 'r', sessionId: 's', rubricId: 'tone', raw: '1', confidence: 0.2, chunks: 1, decidedBy: null }],
@@ -372,7 +390,7 @@ describe('storage and re-weighting', () => {
     store.saveSession(
       {
         runId: 'r', sessionId: 'seen', startedAt: 'now', endpointLabel: 'Web', channel: null,
-        flowName: null, turns: 1, chunks: 1, rating: null, ratingComment: null,
+        channelLabel: null, flowName: null, turns: 1, chunks: 1, rating: null, ratingComment: null,
         unscoreable: null, transcript: '[]', costUsd: 0, ms: 0,
       },
       [],

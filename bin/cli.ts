@@ -21,6 +21,7 @@ import {
 } from '../src/config.ts';
 import { buildDeps, createApp } from '../src/server.ts';
 import { envFile, PACKAGE_ROOT } from '../src/paths.ts';
+import { labelFor } from '../src/cognigy/channels.ts';
 import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -181,21 +182,36 @@ function start(): void {
 
 // ---------- headless commands ----------
 
-/** Minimal flag parser: --key value, and --flag for booleans. */
-function parseFlags(argv: string[]): Record<string, string | boolean> {
-  const flags: Record<string, string | boolean> = {};
+/**
+ * Minimal flag parser: `--key value`, and `--flag` for booleans.
+ *
+ * A flag given more than once collects into an array, so `--channel a
+ * --channel b` reads as a list rather than the last value silently winning.
+ */
+type FlagValue = string | boolean | string[];
+
+function parseFlags(argv: string[]): Record<string, FlagValue> {
+  const flags: Record<string, FlagValue> = {};
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i];
     if (!token.startsWith('--')) continue;
     const key = token.slice(2);
     const next = argv[i + 1];
-    if (next === undefined || next.startsWith('--')) flags[key] = true;
-    else {
-      flags[key] = next;
-      i++;
-    }
+    const value: string | boolean = next === undefined || next.startsWith('--') ? true : next;
+    if (typeof value === 'string') i++;
+
+    const existing = flags[key];
+    if (existing === undefined) flags[key] = value;
+    else if (Array.isArray(existing)) existing.push(String(value));
+    else flags[key] = [String(existing), String(value)];
   }
   return flags;
+}
+
+/** A flag that may legitimately appear several times, read as a list. */
+function asList(value: FlagValue | undefined): string[] | undefined {
+  if (value === undefined || value === true) return undefined;
+  return Array.isArray(value) ? value : [String(value)];
 }
 
 function out(value: unknown): void {
@@ -237,6 +253,38 @@ async function headless(command: string, argv: string[]): Promise<void> {
   }
 
   if (command === 'rubrics') return out(store.rubrics());
+
+  if (command === 'channels') {
+    const needle = String(flags.project ?? '');
+    if (!needle) return fail('--project is required');
+    const project = await resolveProject(api, needle);
+    const from = String(flags.from ?? '');
+    const to = String(flags.to ?? '');
+    if (!from || !to) return fail('--from and --to are required');
+
+    const sessions = await odata.sessions({
+      projectId: project.id,
+      from: from.length === 10 ? from + 'T00:00:00Z' : from,
+      to: to.length === 10 ? to + 'T23:59:59Z' : to,
+      limit: Number(flags.limit ?? 500),
+    });
+
+    const byLabel = new Map<string, { label: string; raws: Set<string>; sessions: number }>();
+    for (const session of sessions) {
+      const resolved = labelFor(session.channel);
+      const entry = byLabel.get(resolved.label)
+        ?? { label: resolved.label, raws: new Set<string>(), sessions: 0 };
+      entry.raws.add(resolved.raw);
+      entry.sessions++;
+      byLabel.set(resolved.label, entry);
+    }
+    return out({
+      project,
+      channels: [...byLabel.values()]
+        .map((entry) => ({ ...entry, raws: [...entry.raws] }))
+        .sort((a, b) => b.sessions - a.sessions),
+    });
+  }
 
   if (command === 'rubric') {
     const [sub, ...rest] = argv;
@@ -295,6 +343,7 @@ async function headless(command: string, argv: string[]): Promise<void> {
         from: from.length === 10 ? from + 'T00:00:00Z' : from,
         to: to.length === 10 ? to + 'T23:59:59Z' : to,
         endpoint: flags.endpoint === undefined ? undefined : String(flags.endpoint),
+        channels: asList(flags.channel),
         limit: Number(flags.limit ?? 50),
         skipScored: flags['no-skip'] !== true,
       },
@@ -346,12 +395,17 @@ const USAGE = `
     rubric rm <id>                    delete a rubric
     score --project <name|id> --from <YYYY-MM-DD> --to <YYYY-MM-DD>
           [--endpoint <name|interaction-panel>] [--limit N] [--no-skip] [--json]
+          [--channel <raw value>]     repeatable; omit for every channel
+    channels --project <name|id> --from <date> --to <date>
+                                      what channels are present, and how many sessions
     report [<runId>]                  a previous run, or list runs
     brief [<runId>]                   synthesised findings as markdown, for an agent
 `;
 
 const [command, ...rest] = process.argv.slice(2);
-const HEADLESS = new Set(['projects', 'endpoints', 'rubrics', 'rubric', 'score', 'report', 'brief']);
+const HEADLESS = new Set([
+  'projects', 'endpoints', 'channels', 'rubrics', 'rubric', 'score', 'report', 'brief',
+]);
 
 if (command === 'init') await init();
 else if (!command) start();
