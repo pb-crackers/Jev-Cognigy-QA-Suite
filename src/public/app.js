@@ -134,6 +134,36 @@ function selectedChannels() {
     .flatMap((entry) => entry.raws);
 }
 
+/**
+ * Dark unless the reader says otherwise.
+ *
+ * Deliberately not matched to `prefers-color-scheme`: two of the four status
+ * colours are below 3:1 on the light surface, so dark is the ground this
+ * palette was built for. The choice, once made, is remembered.
+ */
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  $('btn-theme').textContent = theme === 'light' ? '\u25D0 dark' : '\u25D0 light';
+  try {
+    localStorage.setItem('theme', theme);
+  } catch {
+    // Private browsing refuses storage; the theme still applies for this visit.
+  }
+}
+
+function storedTheme() {
+  try {
+    return localStorage.getItem('theme') === 'light' ? 'light' : 'dark';
+  } catch {
+    return 'dark';
+  }
+}
+
+applyTheme(storedTheme());
+$('btn-theme').addEventListener('click', () =>
+  applyTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'),
+);
+
 function renderChannelFilter() {
   const box = $('chan-filter');
   box.replaceChildren(el('span', 'lead', 'Include'));
@@ -646,6 +676,39 @@ function rawLabel(rubric, result) {
   return String(result.raw);
 }
 
+/**
+ * A score as filled and unfilled block characters.
+ *
+ * Block characters rather than a div so the bar sits on the same monospace grid
+ * as the number beside it: the column stays aligned without either element
+ * knowing the other's width.
+ */
+/**
+ * A timestamp as a fixed-width `MM-DD HH:MM`.
+ *
+ * `toLocaleString` is the right thing for a single date on its own, but down a
+ * column its width varies with the hour and the meridiem, so the column stops
+ * lining up. The year is in the run's own date range above the table.
+ */
+function stamp(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+const METER_CELLS = 10;
+
+function bars(score) {
+  const filled = score === undefined ? 0 : Math.round((score / 5) * METER_CELLS);
+  const span = el('span', 'bars');
+  span.append(document.createTextNode('\u2588'.repeat(filled)));
+  if (filled < METER_CELLS) {
+    span.append(el('span', 'off', '\u2588'.repeat(METER_CELLS - filled)));
+  }
+  return span;
+}
+
 function renderTable() {
   const scored = state.sessions
     .map((session) => ({ session, ...composite(session) }))
@@ -670,7 +733,7 @@ function renderTable() {
     const tr = el('tr', 'click');
     tr.append(el('td', 'sid', session.sessionId.slice(0, 8)));
     tr.append(channelCell(session));
-    tr.append(el('td', 'when', new Date(session.startedAt).toLocaleString()));
+    tr.append(el('td', 'when', stamp(session.startedAt)));
     tr.append(el('td', 'flow', session.flowName ?? session.endpointLabel));
     tr.append(el('td', 'n', String(session.turns)));
 
@@ -685,11 +748,7 @@ function renderTable() {
     } else {
       const overall = el('td', 'n');
       const meter = el('div', 'meter wide');
-      const track = el('div', 'track');
-      const fill = el('div', 'fill');
-      fill.style.width = `${((score ?? 0) / 5) * 100}%`;
-      track.append(fill);
-      meter.append(track, el('span', null, score === undefined ? '—' : score.toFixed(1)));
+      meter.append(bars(score), el('span', 'v', score === undefined ? '—' : score.toFixed(1)));
       overall.append(meter);
       const asked = state.rubrics.filter((rubric) => applies(rubric, session)).length;
       const basis = el('span', 'basis', `${counted} of ${state.rubrics.length} rubrics`);
