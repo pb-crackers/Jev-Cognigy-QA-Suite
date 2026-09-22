@@ -19,3 +19,6 @@ logs/
 # published repository: they carry environment details and transcript excerpts
 Tasks/
 *-Features.md
+
+# working notes, not part of the published tool
+Vision-*.md
