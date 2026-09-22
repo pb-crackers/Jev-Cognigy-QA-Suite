@@ -49,9 +49,6 @@
   .wrap{max-width:1280px;margin:0 auto}
   h1{font-size:20px;font-weight:600;margin:0 0 4px}
   .sub{color:var(--ink-2);margin:0 0 28px;font-size:13px}
-  .lbl{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
-       color:var(--ink-muted);margin:38px 0 8px;display:flex;gap:10px;align-items:baseline}
-  .lbl .n{font-weight:400;letter-spacing:0;text-transform:none;font-size:12px}
   .card{background:var(--surface-1);border:1px solid var(--border);border-radius:6px;overflow:hidden}
 
   /* terminal */
@@ -68,21 +65,20 @@
        background:var(--surface-2)}
   .brand{font:600 12px/1 var(--mono);letter-spacing:.04em;padding:14px 0;margin-right:2px}
   .tabs{display:flex;gap:2px;flex:1}
-  .tab{padding:13px 14px;font:12px/1 var(--mono);letter-spacing:.05em;text-transform:uppercase;
-       color:var(--ink-muted);border-bottom:2px solid transparent;cursor:pointer}
+  .tab{padding:13px 14px;font:13px/1 var(--sans);color:var(--ink-muted);
+       border-bottom:2px solid transparent;cursor:pointer}
   .tab.on{color:var(--ink-1);border-bottom-color:var(--t-noul)}
   .env{font:11px/1.4 var(--mono);color:var(--ink-muted)}
   .body{padding:18px}
 
   /* forms */
   .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-  .f label{display:block;font:600 10px/1 var(--mono);letter-spacing:.11em;
-           text-transform:uppercase;color:var(--ink-muted);margin-bottom:5px}
+  .f label{display:block;font:12px/1.3 var(--sans);color:var(--ink-muted);margin-bottom:5px}
   .ctl{width:100%;padding:7px 10px;border:1px solid var(--hairline);border-radius:4px;
        background:var(--plane);color:var(--ink-1);font:12.5px/1.4 var(--mono)}
   .ctl.sel::after{content:"▾"}
   .btn{padding:8px 14px;border-radius:4px;border:1px solid var(--t-noul);background:var(--t-noul);
-       color:#fff;font:600 12px/1 var(--mono);letter-spacing:.04em;text-transform:uppercase;cursor:pointer}
+       color:#fff;font:500 13px/1 var(--sans);cursor:pointer}
   .btn.ghost{background:transparent;color:var(--ink-2);border-color:var(--hairline)}
   .btn[disabled]{opacity:.5}
   .rowend{display:flex;justify-content:space-between;align-items:center;margin-top:16px;
@@ -91,17 +87,16 @@
   .hint b{color:var(--ink-1)}
 
   /* type pills */
-  .pill{display:inline-flex;align-items:center;gap:5px;font:600 10px/1 var(--mono);
-        letter-spacing:.06em;text-transform:uppercase;padding:3px 7px;border-radius:3px;
-        border:1px solid var(--border);color:var(--ink-2)}
+  .pill{display:inline-flex;align-items:center;gap:5px;font:11px/1 var(--sans);
+        padding:3px 7px;border-radius:3px;border:1px solid var(--border);color:var(--ink-muted)}
   .pill .sw{width:7px;height:7px;border-radius:2px;flex:none}
   .sw.noul{background:var(--t-noul)}.sw.score{background:var(--t-score)}.sw.choice{background:var(--t-choice)}
 
   /* tables */
   table{width:100%;border-collapse:collapse;font:12.5px/1.45 var(--mono);
          font-variant-numeric:tabular-nums}
-  th{text-align:left;font:600 10px/1.2 var(--mono);color:var(--ink-muted);
-     letter-spacing:.11em;text-transform:uppercase;padding:0 8px 7px 0;white-space:nowrap}
+  th{text-align:left;font:12px/1.3 var(--sans);color:var(--ink-muted);
+     padding:0 8px 7px 0;white-space:nowrap}
   /* keep a gutter: right-aligned numeric cells otherwise collide with the next column */
   th.n,td.n{text-align:right;font-variant-numeric:tabular-nums;padding-right:14px;padding-left:10px}
   th:last-child,td:last-child{padding-right:0}
@@ -128,8 +123,7 @@
   .split{display:grid;grid-template-columns:1fr 340px}
   .tx{padding:16px 18px;border-right:1px solid var(--hairline);max-height:340px;overflow-y:auto}
   .turn{display:flex;gap:9px;margin-bottom:10px;font-size:12.5px}
-  .who{flex:none;width:44px;font:600 10px/1.6 var(--mono);letter-spacing:.09em;
-       text-transform:uppercase;color:var(--ink-muted);padding-top:2px}
+  .who{flex:none;width:44px;font:11px/1.65 var(--sans);color:var(--ink-muted);padding-top:2px}
   .turn.bot .who{color:var(--t-noul)}
   .rub{padding:16px 18px}
   .r{padding:9px 0;border-top:1px solid var(--hairline)}
@@ -179,14 +173,12 @@ textarea.ctl { font: 13px/1.5 var(--sans); resize: vertical; }
 .grid.two { grid-template-columns: 1fr 1fr; }
 
 
-.editor h2 { font: 600 10px/1 var(--mono); letter-spacing: .11em; text-transform: uppercase;
-             color: var(--ink-muted); margin: 0 0 12px; }
+.editor h2 { font: 13px/1 var(--sans); color: var(--ink-muted); margin: 0 0 12px; }
 .editor .f { margin-bottom: 10px; }
 .type-fields { margin-top: 4px; }
 .w { cursor: pointer; }
 .w input[type=range] { width: 100%; accent-color: var(--meter-fill); margin: 0; }
 tr.sel td { background: var(--row-hover); }
-.turn .who { text-transform: uppercase; }
 .turn.system { color: var(--ink-muted); font-style: italic; }
 .turn.system .who { color: var(--ink-muted); }
 .rd code { font-size: 11.5px; }
@@ -263,10 +255,9 @@ tr.sel td { background: var(--row-hover); }
 }
 .rows.head {
   display: grid; grid-template-columns: 1fr 72px 28px; gap: 6px;
-  font: 600 10px/1 var(--mono); letter-spacing: .11em; text-transform: uppercase;
-  color: var(--ink-muted); margin-bottom: 4px;
+  font: 12px/1.3 var(--sans); color: var(--ink-muted); margin-bottom: 4px;
 }
-.btn.small { padding: 5px 10px; font-size: 11px; }
+.btn.small { padding: 5px 10px; font-size: 12px; }
 .btn.rm {
   padding: 0; width: 28px; height: 32px; background: transparent; color: var(--ink-muted);
   border: 1px solid var(--hairline); border-radius: 4px; font-size: 15px; line-height: 1;
@@ -279,7 +270,7 @@ tr.sel td { background: var(--row-hover); }
   display: flex; align-items: center; justify-content: space-between;
   gap: 16px; margin-bottom: 14px;
 }
-.section-head h2 { font: 600 13px/1 var(--mono); letter-spacing: .04em; margin: 0; }
+.section-head h2 { font: 500 14px/1 var(--sans); margin: 0; }
 .section-actions { display: flex; align-items: center; gap: 12px; }
 
 .scrim {
@@ -307,10 +298,7 @@ tr.sel td { background: var(--row-hover); }
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 14px 18px; border-bottom: 1px solid var(--hairline);
 }
-.drawer-head h2 {
-  font: 600 10px/1 var(--mono); letter-spacing: .11em; text-transform: uppercase;
-  color: var(--ink-muted); margin: 0;
-}
+.drawer-head h2 { font: 13px/1 var(--sans); color: var(--ink-muted); margin: 0; }
 .btn.rm.close { width: 30px; height: 30px; font-size: 18px; }
 .editor { padding: 16px 18px 28px; }
 .editor .f { margin-bottom: 14px; }
@@ -346,8 +334,7 @@ tr.sel td { background: var(--row-hover); }
   padding: 14px 18px 0;
 }
 .weights-title { display: flex; align-items: center; gap: 8px; }
-.weights-title h2 { font: 600 12px/1 var(--mono); letter-spacing: .06em; text-transform: uppercase;
-                    color: var(--ink-muted); margin: 0; }
+.weights-title h2 { font: 13px/1 var(--sans); color: var(--ink-muted); margin: 0; }
 .weights-head .ctl { max-width: 420px; }
 
 .info {
@@ -387,10 +374,7 @@ tr.sel td { background: var(--row-hover); }
 /* Session drawer scores: name and answer, then what was actually asked, then a
    consistent certainty line whatever the rubric type. */
 .rub-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.rub-head h3 {
-  font: 600 10px/1 var(--mono); letter-spacing: .11em; text-transform: uppercase;
-  color: var(--ink-muted); margin: 0;
-}
+.rub-head h3 { font: 13px/1 var(--sans); color: var(--ink-muted); margin: 0; }
 #scores-info { margin: 0 0 12px; }
 .r .rq { font: 12px/1.5 var(--sans); color: var(--ink-2); margin: 5px 0 6px; }
 .r .meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
@@ -452,11 +436,6 @@ tr.sel td { background: var(--row-hover); }
   text-transform: none; color: var(--ink-1);
 }
 /* The weights block sits under the Results heading now, so it drops a level. */
-.weights-head { padding-top: 10px; }
-.weights-title h3 {
-  font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
-  color: var(--ink-muted); margin: 0;
-}
 
 /* ---- channel labels and the breakdown-as-filter row ---- */
 
@@ -479,8 +458,7 @@ tr.sel td { background: var(--row-hover); }
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hairline);
 }
-.chan-filter .lead { font: 600 10px/1 var(--mono); letter-spacing: .11em; text-transform: uppercase;
-                     color: var(--ink-muted); margin-right: 4px; }
+.chan-filter .lead { font: 12px/1.3 var(--sans); color: var(--ink-muted); margin-right: 4px; }
 .chan-toggle {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
   font: 12px/1 var(--mono); padding: 6px 10px; border-radius: 4px;
@@ -503,8 +481,8 @@ tr.sel td { background: var(--row-hover); }
    orange and text blue wherever either appears. */
 .scope {
   display: inline-flex; align-items: center; gap: 5px; vertical-align: middle;
-  font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
-  color: var(--ink-2); border: 1px solid var(--hairline); border-radius: 999px; padding: 2px 8px;
+  font: 11px/1 var(--sans); color: var(--ink-muted);
+  border: 1px solid var(--hairline); border-radius: 3px; padding: 3px 7px;
 }
 .scope .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
 .scope.voice .dot { background: var(--t-score); }
@@ -524,9 +502,7 @@ tr.sel td { background: var(--row-hover); }
 /* A rubric that did not apply, and one that applied but returned nothing. Both
    say why in words: neither is distinguished by colour alone. */
 .r.na .rn, .r.na .rq { color: var(--ink-muted); }
-.r.na .rv {
-  color: var(--ink-muted); font-size: 12px; letter-spacing: .04em; text-transform: uppercase;
-}
+.r.na .rv { color: var(--ink-muted); font: 12px/1.3 var(--sans); }
 .r.none .rv { color: var(--critical); }
 .r .rn { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
@@ -590,3 +566,71 @@ input[type=range]:focus-visible {
   #results-table th:nth-child(4), #results-table td:nth-child(4) { display: none; }
   #results-table { overflow-x: visible; }
 }
+
+/* ---- results-first Score view ---- */
+
+/* The query that produced the table, as one line you open to change. It reads
+   as a sentence about the work rather than a row of field values, because that
+   is how you would describe it out loud. */
+.setup {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 12px 16px; border-bottom: 1px solid var(--hairline);
+}
+.setup-toggle {
+  flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px;
+  background: none; border: 0; padding: 4px 0; cursor: pointer; text-align: left;
+  color: var(--ink-1); font: inherit;
+}
+.setup-toggle .chev {
+  flex: none; color: var(--ink-muted); font: 13px/1 var(--mono); width: 10px;
+  transition: transform .14s ease; transform: rotate(0deg); transform-origin: 45% 50%;
+}
+.setup-toggle .chev::before { content: "\203A"; }
+.setup-toggle:hover .chev { color: var(--ink-1); }
+.setup-toggle[aria-expanded="true"] .chev { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .setup-toggle .chev { transition: none; } }
+.setup-what {
+  font: 13px/1.4 var(--mono); color: var(--ink-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.setup-count { font: 12.5px/1.4 var(--sans); color: var(--ink-muted); white-space: nowrap; }
+.setup-do { display: flex; gap: 8px; flex: none; }
+.setup-toggle:focus-visible { outline: 2px solid var(--t-noul); outline-offset: 2px; border-radius: 3px; }
+
+.setup-panel { padding: 16px; border-bottom: 1px solid var(--hairline); background: var(--surface-2); }
+.setup-panel .grid { margin-bottom: 12px; }
+.setup-panel .grid:last-of-type { margin-bottom: 0; }
+.setup-more { grid-template-columns: 220px 1fr; align-items: end; }
+.check { display: flex; align-items: center; gap: 8px; font: 13px/1.3 var(--sans); cursor: pointer; padding-bottom: 8px; }
+.check input { accent-color: var(--t-noul); width: 15px; height: 15px; margin: 0; }
+.check input:focus-visible { outline: 2px solid var(--t-noul); outline-offset: 2px; }
+.setup-panel .chan-filter { border: 0; padding: 14px 0 0; margin-top: 12px; border-top: 1px solid var(--hairline); }
+
+/* One row above the table: which run, the weights control, and the exports. */
+.results-bar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 12px 16px; border-bottom: 1px solid var(--hairline);
+}
+.results-bar .ctl { width: auto; min-width: 280px; max-width: 460px; flex: 1; }
+.results-bar .results-actions { margin-left: auto; }
+.quiet {
+  background: none; border: 0; padding: 6px 0; cursor: pointer;
+  font: 13px/1 var(--sans); color: var(--ink-2); border-bottom: 1px solid var(--hairline);
+}
+.quiet:hover { color: var(--ink-1); border-bottom-color: var(--ink-muted); }
+.quiet:focus-visible { outline: 2px solid var(--t-noul); outline-offset: 3px; }
+
+.weights-panel { padding: 14px 16px; border-bottom: 1px solid var(--hairline); background: var(--surface-2); }
+.weights-panel .help { margin: 0 0 14px; max-width: 76ch; }
+.weights-panel .weights { padding: 0; }
+.weights-panel .wnote { display: none; }
+
+#results-table { padding: 0; }
+#progress, #run-error:not(:empty) { padding: 14px 16px; }
+
+/* The grade is what this product exists to produce, so it is the one thing in a
+   row allowed to be loud. Everything else recedes to support it. */
+#results-table td.n .meter .v { font-size: 15px; color: var(--ink-1); }
+#results-table td { color: var(--ink-2); }
+#results-table td.n .meter { gap: 10px; }
+.bars { font-size: 11px; }

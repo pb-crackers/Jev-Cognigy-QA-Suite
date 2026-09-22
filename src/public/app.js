@@ -99,10 +99,41 @@ $('btn-scores-info').addEventListener('click', (event) => {
   event.currentTarget.setAttribute('aria-expanded', String(!info.hidden));
 });
 
-$('btn-weights-info').addEventListener('click', (event) => {
-  const info = $('weights-info');
-  info.hidden = !info.hidden;
-  event.currentTarget.setAttribute('aria-expanded', String(!info.hidden));
+/**
+ * Two disclosures, both remembered.
+ *
+ * The page exists to be read, not configured: the query that produced the table
+ * is a line you open when you want to change it, and the ten weight sliders —
+ * which were the largest thing on the page — sit behind a control. Both states
+ * persist, so the layout matches how you actually use it rather than resetting
+ * to the busiest arrangement every visit.
+ */
+function disclose(button, panel, key, labels) {
+  const set = (open) => {
+    panel.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+    if (labels) button.textContent = open ? labels.open : labels.shut;
+    try {
+      localStorage.setItem(key, open ? 'open' : 'shut');
+    } catch {
+      // Storage refused; the disclosure still works for this visit.
+    }
+  };
+
+  let initial = false;
+  try {
+    initial = localStorage.getItem(key) === 'open';
+  } catch {
+    initial = false;
+  }
+  set(initial);
+  button.addEventListener('click', () => set(panel.hidden));
+}
+
+disclose($('btn-setup'), $('setup-panel'), 'setup-open');
+disclose($('btn-weights'), $('weights-panel'), 'weights-open', {
+  open: 'Hide weights',
+  shut: 'Adjust weights',
 });
 
 $('btn-close-drawer').addEventListener('click', closeDrawer);
@@ -206,7 +237,7 @@ function runRequest() {
     from: isoStart($('from').value),
     to: isoEnd($('to').value),
     limit: Number($('limit').value),
-    skipScored: $('skip').value === 'yes',
+    skipScored: $('skip').checked,
   };
 }
 
@@ -224,10 +255,45 @@ async function loadEndpoints() {
   for (const endpoint of endpoints) select.append(new Option(endpoint.name, endpoint.name));
 }
 
+/**
+ * The one-line answer to "what am I looking at".
+ *
+ * Deliberately not a breadcrumb of field values: it names the project and the
+ * range in the words you would use out loud, and says nothing about fields you
+ * have left alone.
+ */
+function describeRun() {
+  const project = $('project').selectedOptions[0]?.textContent?.trim();
+  if (!project) {
+    $('setup-what').textContent = 'Choose a project';
+    return;
+  }
+
+  const endpoint = $('endpoint').selectedOptions[0]?.textContent?.trim();
+  const short = (value) => {
+    const date = new Date(`${value}T00:00:00`);
+    return Number.isNaN(date.getTime())
+      ? value
+      : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  };
+
+  const parts = [project];
+  if (endpoint && !/^any/i.test(endpoint)) parts.push(endpoint);
+  if ($('from').value && $('to').value) {
+    parts.push(`${short($('from').value)} to ${short($('to').value)}`);
+  }
+  if (state.excluded.size > 0) {
+    const kept = state.channels.filter((channel) => !state.excluded.has(channel.raws[0]));
+    parts.push(kept.map((channel) => channel.label.toLowerCase()).join(' and ') || 'nothing');
+  }
+  $('setup-what').textContent = parts.join(', ');
+}
+
 async function preview() {
   const request = runRequest();
   if (!request.projectId) return;
-  $('preview').textContent = 'Counting sessions…';
+  describeRun();
+  $('preview').textContent = 'counting…';
   try {
     const result = await json('/api/preview', {
       method: 'POST',
@@ -237,21 +303,29 @@ async function preview() {
     state.channels = result.byChannel ?? [];
     renderChannelFilter();
 
-    const parts = [
-      `${result.matched} session${result.matched === 1 ? '' : 's'} match`,
-      result.alreadyScored ? `${result.alreadyScored} already scored` : null,
-      `${result.toScore} to score`,
-      `${result.records} records`,
-      result.masked ? `${result.masked} masked` : null,
-      result.excludedByChannel
-        ? `${result.excludedByChannel} excluded by filter, never fetched`
-        : null,
-    ].filter(Boolean);
-    $('preview').textContent =
-      state.channels.length > 0 && state.excluded.size === state.channels.length
-        ? 'No channels selected — nothing to score. Turn at least one back on.'
-        : parts.join(' · ');
+    describeRun();
+
+    const nothingIncluded =
+      state.channels.length > 0 && state.excluded.size === state.channels.length;
+    const sessions = `${result.matched} session${result.matched === 1 ? '' : 's'}`;
+
+    // Written as a sentence rather than a row of counts joined by dots: the
+    // reader wants to know whether there is anything to do, not five numbers.
+    let line;
+    if (nothingIncluded) line = 'no channels included, so nothing will be pulled';
+    else if (result.matched === 0) line = 'no sessions in this range';
+    else if (result.toScore === 0) line = `${sessions}, all scored already`;
+    else if (result.alreadyScored === 0) line = `${sessions}, none scored yet`;
+    else line = `${sessions}, ${result.toScore} still to score`;
+    if (result.masked) line += `, ${result.masked} masked`;
+    $('preview').textContent = line;
+
     $('btn-run').disabled = result.toScore === 0;
+    // A button says what pressing it will do.
+    $('btn-run').textContent =
+      result.toScore > 0
+        ? `Score ${result.toScore} session${result.toScore === 1 ? '' : 's'}`
+        : 'Nothing to score';
   } catch (error) {
     $('preview').textContent = '';
     showError('run-error', error.message);
@@ -780,10 +854,16 @@ function renderTable() {
 
   const flagged = state.sessions.filter((session) => session.flagged.length > 0).length;
   const skipped = state.sessions.filter((session) => session.unscoreable).length;
+  const notes = [
+    flagged ? `${flagged} flagged for review` : null,
+    skipped ? `${skipped} could not be scored` : null,
+  ].filter(Boolean);
   $('results-foot').textContent =
-    `${state.sessions.length} sessions · ${flagged} flagged · ${skipped} skipped · ` +
-    `${usd(state.run.costUsd)} · ${(state.run.ms / 1000).toFixed(1)}s · ` +
-    'click a row for the transcript and its scores';
+    `${state.sessions.length} session${state.sessions.length === 1 ? '' : 's'}` +
+    `${notes.length ? `, ${notes.join(' and ')}` : ''}. ` +
+    `Scored in ${(state.run.ms / 1000).toFixed(1)}s for ${usd(state.run.costUsd)}` +
+    `${state.comparison ? ` — ${state.comparison}` : ''}. ` +
+    'Open a row to read the transcript.';
 }
 
 async function loadRuns(selectId) {
@@ -791,8 +871,10 @@ async function loadRuns(selectId) {
   const select = $('run-select');
   select.replaceChildren();
   for (const run of runs) {
-    const when = new Date(run.startedAt).toLocaleString();
-    select.append(new Option(`${run.projectName} · ${run.endpointLabel} · ${when}`, run.id));
+    const at = new Date(run.startedAt);
+    const when = at.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) +
+      ' ' + at.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    select.append(new Option(`${run.projectName}, ${when}`, run.id));
   }
   if (runs.length === 0) {
     $('results-region').hidden = true;
@@ -810,9 +892,11 @@ async function loadRun(runId) {
   state.sessions = payload.sessions;
   state.weights = new Map(payload.rubrics.map((rubric) => [rubric.id, rubric.weight]));
 
+  // Kept as a fact about the run, reported in the footer beside what it cost,
+  // rather than as a headline above the table.
   const cheapest = payload.comparison[0];
-  $('results-meta').textContent = cheapest
-    ? `Equivalent on ${cheapest.label} ≈ ${usd(cheapest.uncachedUsd)}`
+  state.comparison = cheapest
+    ? `the same tokens on ${cheapest.label} would have cost ${usd(cheapest.uncachedUsd)}`
     : '';
   renderWeights();
   renderTable();
