@@ -20,6 +20,7 @@ import { executeRun, type RunProgress } from './scoring/run.ts';
 import { Store } from './store/db.ts';
 import { scoreSessions } from './store/score.ts';
 import { buildBriefing } from './briefing.ts';
+import { resolveNodes } from './cognigy/links.ts';
 import { fromEnv, missingKeys, type Config } from './config.ts';
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -231,11 +232,20 @@ export function createApp(deps: Deps) {
         const runId = briefMatch[1];
         const run = store.runs().find((candidate) => candidate.id === runId);
         if (!run) return send(404, { error: 'No such run' });
+        const sessions = store.sessionsForRun(runId);
+        const nodes = await resolveNodes({
+          api,
+          apiBase: config.cognigyApiBase,
+          appBase: config.cognigyAppBase,
+          projectId: run.projectId,
+          transcripts: sessions.map((session) => session.transcript),
+        });
         const markdown = buildBriefing(
           run,
-          store.sessionsForRun(runId),
+          sessions,
           store.resultsForRun(runId),
           store.rubrics(),
+          nodes,
         );
         response.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8' });
         return response.end(markdown);

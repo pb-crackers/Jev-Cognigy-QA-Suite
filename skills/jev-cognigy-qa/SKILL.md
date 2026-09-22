@@ -199,6 +199,32 @@ tells you exactly what to fix.
 `raw` depends on type: a probability 0-1 for `boolean`, a level value for `score`, an
 option key for `choice`.
 
+### The briefing points at Flow nodes
+
+`brief` quotes real excerpts under each failing rubric. In those excerpts the **`Agent:`
+label is a link to the Flow node that produced that line**, and the link title carries the
+node's label, type and — when the run spans more than one Flow — the Flow name:
+
+```markdown
+> **[Agent](https://<host>/project/<p>/<locale>/flow/<f>/chart/<node> "Say · say · JEV AMD"):** Voicemail Detected
+```
+
+Follow the link to open the node. Do not rely on the node **label** to find it: labels
+collide, and four different `say` nodes all report "Say". The id in the URL is the only
+thing that identifies a node.
+
+The quoted text itself is never altered, so you can still grep the Flow for a phrase.
+
+If links are missing, one of these is true, and none of them is an error:
+
+- the run was scored before node capture existed, so there is nothing to attribute;
+- the Flow editor host could not be derived from `COGNIGY_API_BASE` (the rule is to drop a
+  leading `api-`). Set `COGNIGY_APP_BASE` to the editor host to fix it;
+- the Flow was deleted after the run was scored.
+
+In the last two cases the node id is still printed on its own line, so it remains
+addressable by hand.
+
 Note that `confidence` is `null` for every `boolean` rubric. Jev does not report a
 separate confidence for a yes/no question, because the probability already carries it —
 0.99 is a confident yes, 0.04 a confident no, and anything near 0.50 means it could not

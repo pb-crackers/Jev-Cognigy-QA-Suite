@@ -11,6 +11,15 @@
 export interface CognigyProject {
   id: string;
   name: string;
+  /** The project's primary locale, which the Flow editor URL is scoped to. */
+  localeId?: string;
+}
+
+export interface CognigyFlow {
+  id: string;
+  /** What a transcript record calls `flowReferenceId`; the join key. */
+  referenceId: string;
+  name: string;
 }
 
 export interface CognigyEndpoint {
@@ -26,6 +35,14 @@ interface ItemsResponse<T> {
 interface RawNamed {
   _id: string;
   name: string;
+}
+
+interface RawProject extends RawNamed {
+  primaryLocaleReference?: string;
+}
+
+interface RawFlow extends RawNamed {
+  referenceId?: string;
 }
 
 export class CognigyApi {
@@ -51,8 +68,28 @@ export class CognigyApi {
   }
 
   async projects(): Promise<CognigyProject[]> {
-    const body = await this.#get<ItemsResponse<RawNamed>>('/v2.0/projects?limit=100');
-    return (body.items ?? []).map((item) => ({ id: item._id, name: item.name }));
+    const body = await this.#get<ItemsResponse<RawProject>>('/v2.0/projects?limit=100');
+    return (body.items ?? []).map((item) => ({
+      id: item._id,
+      name: item.name,
+      localeId: item.primaryLocaleReference,
+    }));
+  }
+
+  /**
+   * The project's Flows, keyed for joining to a transcript.
+   *
+   * A record reports the Flow it ran in as `flowReferenceId`, a UUID, whereas
+   * the editor URL wants the Flow's `_id`. This is the only place the two are
+   * brought together.
+   */
+  async flows(projectId: string): Promise<CognigyFlow[]> {
+    const body = await this.#get<ItemsResponse<RawFlow>>(
+      `/v2.0/flows?projectId=${encodeURIComponent(projectId)}&limit=100`,
+    );
+    return (body.items ?? [])
+      .filter((item): item is RawFlow & { referenceId: string } => Boolean(item.referenceId))
+      .map((item) => ({ id: item._id, referenceId: item.referenceId, name: item.name }));
   }
 
   async endpoints(projectId: string): Promise<CognigyEndpoint[]> {

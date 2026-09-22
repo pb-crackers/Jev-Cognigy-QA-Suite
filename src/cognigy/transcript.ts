@@ -23,6 +23,15 @@ export interface Turn {
   /** Flow node that produced the turn, when reported. */
   nodeType?: string;
   nodeLabel?: string;
+  /**
+   * The node's own id, and the reference id of the Flow it lives in.
+   *
+   * The label is not an address: four different `say` nodes all report "Say",
+   * and a label does not say which Flow it came from. These two do, which is
+   * what lets a briefing point at the node rather than describe it.
+   */
+  nodeId?: string;
+  flowRef?: string;
   /** Why generation stopped, for turns from a prompt node. */
   finishReason?: string;
 }
@@ -51,6 +60,8 @@ interface Parsed {
   finishReason?: string;
   nodeType?: string;
   nodeLabel?: string;
+  nodeId?: string;
+  flowRef?: string;
   event?: string;
   payload?: Record<string, unknown>;
 }
@@ -72,6 +83,9 @@ function parse(record: ConversationRecord): Parsed {
     finishReason: typeof cognigy._finishReason === 'string' ? cognigy._finishReason : undefined,
     nodeType: typeof metadata.nodeType === 'string' ? metadata.nodeType : undefined,
     nodeLabel: typeof metadata.nodeLabel === 'string' ? metadata.nodeLabel : undefined,
+    nodeId: typeof metadata.nodeId === 'string' ? metadata.nodeId : undefined,
+    flowRef:
+      typeof metadata.flowReferenceId === 'string' ? metadata.flowReferenceId : undefined,
     event: typeof data.event === 'string' ? data.event : undefined,
     payload: (data.payload ?? undefined) as Record<string, unknown> | undefined,
   };
@@ -151,6 +165,8 @@ export function assemble(
         at: item.record.timestamp,
         nodeType: item.nodeType,
         nodeLabel: item.nodeLabel,
+        nodeId: item.nodeId,
+        flowRef: item.flowRef,
       });
       continue;
     }
@@ -177,6 +193,8 @@ export function assemble(
         at: group[0].record.timestamp,
         nodeType: described?.nodeType,
         nodeLabel: described?.nodeLabel,
+        nodeId: described?.nodeId,
+        flowRef: described?.flowRef,
         finishReason: terminator?.finishReason,
       });
       continue;

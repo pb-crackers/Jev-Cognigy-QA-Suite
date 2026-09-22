@@ -15,6 +15,58 @@ import { scoreSessions, REVIEW_CONFIDENCE, type ScoredSession } from './store/sc
 interface Turn {
   role: 'user' | 'agent' | 'system';
   text: string;
+  nodeType?: string;
+  nodeLabel?: string;
+  nodeId?: string;
+  flowRef?: string;
+}
+
+/**
+ * Resolves the Flow node behind an agent turn into something a reader can act
+ * on. Supplied by the caller, which owns the API calls, so this module stays a
+ * pure function of the run.
+ */
+export interface NodeResolver {
+  /** The editor URL for a turn's node, or undefined when one cannot be built. */
+  url(turn: Turn): string | undefined;
+  /** Label, type and — when the run spans more than one — the Flow name. */
+  describe(turn: Turn): string | undefined;
+}
+
+/**
+ * The speaker label of an agent turn, linked to the node that produced it.
+ *
+ * The link goes on the label rather than the words because the quoted text is
+ * evidence: an agent reading this briefing greps the Flow for a phrase, and
+ * wrapping it in link syntax would stop that matching. The node's label, type
+ * and Flow ride in the link title, so the normal case adds no lines at all.
+ */
+function speaker(turn: Turn, nodes?: NodeResolver): string {
+  if (turn.role === 'user') return '**Customer:**';
+  if (turn.role !== 'agent') return '';
+
+  const url = nodes?.url(turn);
+  if (!url) return '**Agent:**';
+
+  const described = nodes?.describe(turn);
+  const title = described ? ` "${described.replace(/"/g, "'")}"` : '';
+  return `**[Agent](${url}${title}):**`;
+}
+
+/**
+ * The fallback line for an agent turn whose node is known but unlinkable — no
+ * app host, or a Flow deleted since the run. It is the one case that costs a
+ * line, because otherwise the information would be lost rather than deferred.
+ *
+ * No resolver at all is a different thing from a resolver that cannot build a
+ * URL: it means the caller did not ask for node attribution, so nothing is
+ * emitted. Conflating the two put raw ids into briefings nobody asked to have
+ * annotated.
+ */
+function plainNode(turn: Turn, nodes?: NodeResolver): string | undefined {
+  if (!nodes || turn.role !== 'agent' || !turn.nodeId || nodes.url(turn)) return undefined;
+  const flow = turn.flowRef ? ` · flow \`${turn.flowRef}\`` : '';
+  return `> ↳ node \`${turn.nodeId}\`${flow}`;
 }
 
 /** How many example sessions to quote per failing rubric. */
@@ -34,7 +86,7 @@ interface RubricSummary {
   worst: ScoredSession[];
 }
 
-function excerpt(session: SessionRow): string {
+function excerpt(session: SessionRow, nodes?: NodeResolver): string {
   let turns: Turn[] = [];
   try {
     turns = JSON.parse(session.transcript) as Turn[];
@@ -48,9 +100,11 @@ function excerpt(session: SessionRow): string {
   return (
     elided +
     tail
-      .map((turn) => {
-        if (turn.role === 'system') return `> _${turn.text}_`;
-        return `> **${turn.role === 'user' ? 'Customer' : 'Agent'}:** ${turn.text}`;
+      .flatMap((turn) => {
+        if (turn.role === 'system') return [`> _${turn.text}_`];
+        const line = `> ${speaker(turn, nodes)} ${turn.text}`;
+        const fallback = plainNode(turn, nodes);
+        return fallback ? [line, fallback] : [line];
       })
       .join('\n')
   );
@@ -103,6 +157,7 @@ export function buildBriefing(
   sessions: SessionRow[],
   results: ResultRow[],
   rubrics: Rubric[],
+  nodes?: NodeResolver,
 ): string {
   const scored = scoreSessions(sessions, results, rubrics);
   const scoreable = scored.filter((entry) => !entry.session.unscoreable);
@@ -180,7 +235,7 @@ export function buildBriefing(
             `${result?.confidence !== null && result?.confidence !== undefined ? `, confidence ${result.confidence.toFixed(2)}` : ''})`,
         );
         push();
-        push(excerpt(entry.session));
+        push(excerpt(entry.session, nodes));
         push();
       }
     }

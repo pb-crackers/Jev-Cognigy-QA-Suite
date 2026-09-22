@@ -233,8 +233,8 @@ function deps() {
 
 async function headless(command: string, argv: string[]): Promise<void> {
   const flags = parseFlags(argv);
-  const { api, odata, store } = deps();
-  const headlessDeps = { api, odata, store };
+  const { api, odata, store, config } = deps();
+  const headlessDeps = { api, odata, store, config };
 
   if (command === 'projects') return out(await api.projects());
 
@@ -366,7 +366,7 @@ async function headless(command: string, argv: string[]): Promise<void> {
     const runId = argv[0] ?? store.runs()[0]?.id;
     if (!runId) return fail('no runs yet — score a batch first');
     // Markdown, not JSON: this output is meant to be read or handed to an agent.
-    console.log(briefing(runId, headlessDeps));
+    console.log(await briefing(runId, headlessDeps));
     return;
   }
 

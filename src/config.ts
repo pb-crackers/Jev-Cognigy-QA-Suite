@@ -15,6 +15,11 @@ export interface Config {
   cognigyApiKey: string;
   cognigyOdataBase: string;
   projectId?: string;
+  /**
+   * The Flow editor host, when it cannot be derived from the API base by
+   * dropping an `api-` prefix. Only needed on environments that break that rule.
+   */
+  cognigyAppBase?: string;
 }
 
 export const ENV_KEYS = {
@@ -23,6 +28,7 @@ export const ENV_KEYS = {
   cognigyApiKey: 'COGNIGY_API_KEY',
   cognigyOdataBase: 'COGNIGY_ODATA_BASE',
   projectId: 'COGNIGY_PROJECT_ID',
+  cognigyAppBase: 'COGNIGY_APP_BASE',
 } as const;
 
 export function fromEnv(env: NodeJS.ProcessEnv = process.env): Partial<Config> {
@@ -32,6 +38,7 @@ export function fromEnv(env: NodeJS.ProcessEnv = process.env): Partial<Config> {
     cognigyApiKey: env[ENV_KEYS.cognigyApiKey],
     cognigyOdataBase: env[ENV_KEYS.cognigyOdataBase],
     projectId: env[ENV_KEYS.projectId],
+    cognigyAppBase: env[ENV_KEYS.cognigyAppBase],
   };
 }
 
