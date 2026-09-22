@@ -16,11 +16,15 @@ import type { OdataClient } from './cognigy/odata.ts';
 import type { Store } from './store/db.ts';
 import { llmEquivalents } from './metering.ts';
 import { buildBriefing } from './briefing.ts';
+import { resolveNodes } from './cognigy/links.ts';
+import type { Config } from './config.ts';
 
 export interface HeadlessDeps {
   api: CognigyApi;
   odata: OdataClient;
   store: Store;
+  /** Only the briefing needs this, to work out the Flow editor host. */
+  config?: Pick<Config, 'cognigyApiBase' | 'cognigyAppBase'>;
 }
 
 export interface ScoreOptions {
@@ -225,15 +229,18 @@ export function validateRubric(value: unknown): string[] {
 }
 
 /** The same synthesis the UI offers, for piping to an agent or a file. */
-export function briefing(runId: string, deps: HeadlessDeps): string {
+export async function briefing(runId: string, deps: HeadlessDeps): Promise<string> {
   const run = deps.store.runs().find((candidate) => candidate.id === runId);
   if (!run) throw new Error(`No run with id ${runId}`);
-  return buildBriefing(
-    run,
-    deps.store.sessionsForRun(runId),
-    deps.store.resultsForRun(runId),
-    deps.store.rubrics(),
-  );
+  const sessions = deps.store.sessionsForRun(runId);
+  const nodes = await resolveNodes({
+    api: deps.api,
+    apiBase: deps.config?.cognigyApiBase,
+    appBase: deps.config?.cognigyAppBase,
+    projectId: run.projectId,
+    transcripts: sessions.map((session) => session.transcript),
+  });
+  return buildBriefing(run, sessions, deps.store.resultsForRun(runId), deps.store.rubrics(), nodes);
 }
 
 /** Fills in what the tool derives, so callers only supply what they mean. */
