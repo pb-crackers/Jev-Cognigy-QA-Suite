@@ -15,75 +15,85 @@
       <button class="tab" data-view="rubrics" type="button">Rubrics</button>
     </nav>
     <span class="env" id="env"></span>
+    <button class="theme" id="btn-theme" type="button" aria-label="Switch between dark and light"></button>
   </header>
 
-  <!-- Score: run controls, with results appearing directly beneath them -->
+  <!--
+    The work is reading scored conversations, not configuring a run. So the table
+    leads, and the query that produced it is one line you open when you want to
+    change it. Weights live behind a control for the same reason: ten sliders were
+    the largest thing on a page you visit to read a table.
+  -->
   <section class="view" id="view-score">
-    <div class="body run-block">
-    <div class="grid">
-      <div class="f"><label for="project">Project</label><select class="ctl" id="project"></select></div>
-      <div class="f"><label for="endpoint">Endpoint</label><select class="ctl" id="endpoint"></select></div>
-      <div class="f"><label for="from">From</label><input class="ctl" id="from" type="date"></div>
-      <div class="f"><label for="to">To</label><input class="ctl" id="to" type="date"></div>
+    <div class="setup">
+      <button class="setup-toggle" id="btn-setup" type="button"
+              aria-expanded="false" aria-controls="setup-panel">
+        <span class="chev" aria-hidden="true"></span>
+        <span class="setup-what" id="setup-what">Choose a project</span>
+        <span class="setup-count" id="preview"></span>
+      </button>
+      <span class="setup-do">
+        <button class="btn ghost" id="btn-preview" type="button">Refresh counts</button>
+        <button class="btn" id="btn-run" type="button" disabled>Score sessions</button>
+      </span>
     </div>
-    <div class="grid" style="margin-top:12px">
-      <div class="f"><label for="limit">Max sessions</label><select class="ctl" id="limit">
-        <option value="25">25</option>
-        <option value="50">50</option>
-        <option value="100" selected>100</option>
-        <option value="150">150</option>
-        <option value="200">200</option>
-        <option value="250">250</option>
-        <option value="300">300</option>
-      </select></div>
-      <div class="f"><label for="skip">Skip already scored</label>
-        <select class="ctl" id="skip"><option value="yes">Yes</option><option value="no">No</option></select></div>
+
+    <div class="setup-panel" id="setup-panel" hidden>
+      <div class="grid">
+        <div class="f"><label for="project">Project</label><select class="ctl" id="project"></select></div>
+        <div class="f"><label for="endpoint">Endpoint</label><select class="ctl" id="endpoint"></select></div>
+        <div class="f"><label for="from">From</label><input class="ctl" id="from" type="date"></div>
+        <div class="f"><label for="to">To</label><input class="ctl" id="to" type="date"></div>
+      </div>
+      <div class="grid setup-more">
+        <div class="f"><label for="limit">Most sessions to pull</label><select class="ctl" id="limit">
+          <option value="25">25</option>
+          <option value="50">50</option>
+          <option value="100" selected>100</option>
+          <option value="150">150</option>
+          <option value="200">200</option>
+          <option value="250">250</option>
+          <option value="300">300</option>
+        </select></div>
+        <label class="check" for="skip">
+          <input type="checkbox" id="skip" checked>
+          <span>Skip sessions already scored</span>
+        </label>
+      </div>
+      <div class="chan-filter" id="chan-filter" hidden>
+        <span class="lead">Include</span>
+      </div>
     </div>
-    <div class="chan-filter" id="chan-filter" hidden>
-      <span class="lead">Include</span>
-    </div>
-    <div class="rowend">
-      <span class="hint" id="preview">Choose a project to see how many sessions match.</span>
-      <span><button class="btn ghost" id="btn-preview" type="button">Preview</button>
-        <button class="btn" id="btn-run" type="button" disabled>Score sessions</button></span>
-    </div>
+
     <div id="progress" hidden>
       <div class="prog"><i id="progress-bar"></i></div>
       <span class="hint" id="progress-text"></span>
     </div>
-      <div id="run-error"></div>
-    </div>
+    <div id="run-error"></div>
 
     <div id="results-region" hidden>
-      <div class="results-sep">
-        <h2>Results</h2>
+      <div class="results-bar">
         <select class="ctl" id="run-select" aria-label="Which run to view"></select>
+        <button class="quiet" id="btn-weights" type="button"
+                aria-expanded="false" aria-controls="weights-panel">Adjust weights</button>
+        <span class="results-actions">
+          <button class="btn ghost" id="btn-copy-brief" type="button">Copy briefing</button>
+          <button class="btn" id="btn-download-brief" type="button">Download briefing</button>
+        </span>
       </div>
-      <div class="weights-head">
-        <div class="weights-title">
-          <h3>Scoring weights</h3>
-          <button class="info" id="btn-weights-info" type="button"
-            aria-label="What do these do?" aria-expanded="false">i</button>
-        </div>
+      <div class="weights-panel" id="weights-panel" hidden>
+        <p class="help" id="weights-info">
+          Each rubric was scored once, when the batch ran. These sliders set how much each one
+          counts toward the overall score, and the table re-ranks as you move them. Nothing is
+          re-scored and no request is sent, so you can change your mind about what matters
+          without paying for it again. Set a rubric to <b>0</b> to report it but leave it out
+          of the overall score.
+        </p>
+        <div class="weights" id="weights"></div>
       </div>
-      <p class="help weights-info" id="weights-info" hidden>
-        Each rubric was scored once, when the batch ran. These sliders set how much each one
-        counts toward the <b>Overall</b> column, and the table re-ranks as you move them.
-        Nothing is re-scored and no request is sent, so you can change your mind about what
-        matters without paying for it again. Set a rubric to <b>0</b> to report it but leave
-        it out of the overall score.
-      </p>
-      <div class="weights" id="weights"></div>
-      <div class="body">
-        <div id="results-table"></div>
-        <div class="rowend">
-          <span class="hint" id="results-foot"></span>
-          <span class="results-actions">
-            <span class="hint" id="results-meta"></span>
-            <button class="btn ghost" id="btn-copy-brief" type="button">Copy briefing</button>
-            <button class="btn" id="btn-download-brief" type="button">Download briefing</button>
-          </span>
-        </div>
+      <div id="results-table"></div>
+      <div class="rowend">
+        <span class="hint" id="results-foot"></span>
       </div>
     </div>
   </section>

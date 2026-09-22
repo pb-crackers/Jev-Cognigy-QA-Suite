@@ -1,0 +1,327 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Terminal visual system</title>
+<!--
+  Mockup for Tasks/terminal-visual-system.md.
+
+  Every state below is real content from run 9aa33c20 / the current rubric library.
+  Targets src/public/app.css and the markup in src/public/index.html. No behaviour
+  changes: this is typography, density and chrome only.
+
+  The type split is the whole idea:
+    --mono  ids, scores, meters, verdicts, counts, timings, node links
+    --sans  rubric questions, help text, explanations
+
+  Colour is NOT redesigned. The tokens below are the ones already in app.css; the only
+  addition is --serious (#ec835a), the fourth status step, which the rubric-result-display
+  feature needs. On the dark surface all four status colours clear 3:1; on light, warning
+  and serious do not — which is why a status colour always sits beside a word.
+
+  Canvas 1280px. The 720px note is at the bottom.
+-->
+<style>
+  :root {
+    color-scheme: dark;
+    --plane:#0d0d0d; --surface-1:#1a1a19; --surface-2:#232321;
+    --ink-1:#f2f1ec; --ink-2:#a9a79d; --ink-muted:#6f6d66;
+    --hairline:#2c2c2a; --border:rgba(255,255,255,.09);
+    --t-noul:#3987e5; --t-score:#d95926; --t-choice:#199e70;
+    --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
+    --meter-track:#26262400; --meter-fill:#3987e5;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --plane:#f4f4f1; --surface-1:#fcfcfb; --surface-2:#eeeeea;
+    --ink-1:#0b0b0b; --ink-2:#52514e; --ink-muted:#898781;
+    --hairline:#e1e0d9; --border:rgba(11,11,11,.12);
+    --t-noul:#2a78d6; --t-score:#eb6834; --t-choice:#1baf7a;
+    --meter-fill:#2a78d6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:24px 16px 72px;background:var(--plane);color:var(--ink-1);
+       font:13.5px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1280px;margin:0 auto}
+
+  /* Section captions for this mockup only. */
+  .state{font:600 10.5px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;
+         color:var(--ink-muted);margin:34px 0 10px;display:flex;gap:10px;align-items:center}
+  .state::after{content:"";flex:1;height:1px;background:var(--hairline)}
+  .note{font-size:12.5px;color:var(--ink-2);margin:10px 0 0;padding-left:11px;
+        border-left:2px solid var(--hairline)}
+
+  .card{background:var(--surface-1);border:1px solid var(--border);border-radius:6px;overflow:hidden}
+
+  /* ---- chrome ---- */
+  .bar{display:flex;align-items:center;gap:16px;padding:0 16px;border-bottom:1px solid var(--hairline);
+       background:var(--surface-2)}
+  .brand{font:600 12px/1 var(--mono);letter-spacing:.04em;padding:14px 0;margin-right:2px}
+  .brand .dim{color:var(--ink-muted)}
+  .tabs{display:flex;gap:0;flex:1}
+  .tab{padding:13px 14px;font:12px/1 var(--mono);letter-spacing:.05em;text-transform:uppercase;
+       color:var(--ink-muted);border-bottom:2px solid transparent;cursor:pointer;background:none;border-top:0;border-left:0;border-right:0}
+  .tab.on{color:var(--ink-1);border-bottom-color:var(--t-noul)}
+  .env{font:11px/1 var(--mono);color:var(--ink-muted)}
+  .theme{margin-left:14px;font:11px/1 var(--mono);color:var(--ink-muted);background:none;
+         border:1px solid var(--hairline);border-radius:4px;padding:5px 8px;cursor:pointer}
+  .body{padding:16px}
+
+  /* ---- labels & fields ---- */
+  .lbl{display:block;font:600 10px/1 var(--mono);letter-spacing:.11em;text-transform:uppercase;
+       color:var(--ink-muted);margin-bottom:5px}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:11px}
+  .grid.two{grid-template-columns:repeat(2,1fr)}
+  .f{margin-bottom:12px}
+  .ctl{width:100%;padding:7px 10px;border:1px solid var(--hairline);border-radius:4px;
+       background:var(--plane);color:var(--ink-1);font:12.5px/1.4 var(--mono)}
+  textarea.ctl,.ctl.prose{font-family:var(--sans);font-size:13px}
+  .ctl:focus-visible{outline:2px solid var(--t-noul);outline-offset:1px;border-color:transparent}
+  .help{font:12px/1.45 var(--sans);color:var(--ink-muted);margin:5px 0 0}
+  .help b{color:var(--ink-2)}
+
+  .btn{padding:8px 14px;border-radius:4px;border:1px solid var(--t-noul);background:var(--t-noul);
+       color:#fff;font:600 12px/1 var(--mono);letter-spacing:.04em;text-transform:uppercase;cursor:pointer}
+  .btn.ghost{background:transparent;color:var(--ink-2);border-color:var(--hairline)}
+  .btn:focus-visible{outline:2px solid var(--t-noul);outline-offset:2px}
+  .btn[disabled]{opacity:.4}
+
+  /* ---- channel filter ---- */
+  .filter{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--hairline);
+          border-bottom:1px solid var(--hairline);flex-wrap:wrap}
+  .filter .lead{font:600 10px/1 var(--mono);letter-spacing:.11em;text-transform:uppercase;color:var(--ink-muted);margin-right:4px}
+  .chip{display:inline-flex;align-items:center;gap:7px;padding:5px 10px;border:1px solid var(--hairline);
+        border-radius:4px;font:12px/1 var(--mono);color:var(--ink-2);cursor:pointer;background:none}
+  .chip .dot{width:7px;height:7px;border-radius:50%;flex:none}
+  .chip .n{color:var(--ink-muted);font-variant-numeric:tabular-nums}
+  .chip.voice .dot{background:var(--t-score)} .chip.panel .dot{background:var(--ink-muted)}
+  .chip.text .dot{background:var(--t-noul)}
+  .chip[aria-pressed="true"]{border-color:var(--t-noul);color:var(--ink-1)}
+  .chip[aria-pressed="false"]{opacity:.42;text-decoration:line-through}
+  .chip:focus-visible{outline:2px solid var(--t-noul);outline-offset:1px}
+
+  .status{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;gap:16px}
+  .status .line{font:12px/1.4 var(--mono);color:var(--ink-2)}
+  .status .line b{color:var(--ink-1);font-variant-numeric:tabular-nums}
+  .actions{display:flex;gap:8px}
+
+  /* ---- tables ---- */
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font:600 10px/1 var(--mono);letter-spacing:.11em;text-transform:uppercase;
+     color:var(--ink-muted);padding:10px 14px;border-bottom:1px solid var(--hairline);background:var(--surface-2)}
+  td{padding:10px 14px;border-bottom:1px solid var(--hairline);font:12.5px/1.45 var(--mono);
+     vertical-align:middle;font-variant-numeric:tabular-nums}
+  tr:last-child td{border-bottom:0}
+  th.n,td.n{text-align:right}
+  tbody tr:hover td{background:var(--surface-2)}
+  .sid{color:var(--ink-2)}
+  .when{color:var(--ink-muted)}
+  .prose-cell{font-family:var(--sans);font-size:13px}
+  .rd{font:12px/1.45 var(--sans);color:var(--ink-muted);margin-top:3px}
+
+  /* Block meter — mono, so it aligns in a column. */
+  .meter{display:inline-flex;align-items:baseline;gap:9px;justify-content:flex-end}
+  .bars{font-family:var(--mono);letter-spacing:-.5px;color:var(--meter-fill)}
+  .bars .off{color:var(--hairline)}
+  .meter .v{font-weight:600;font-variant-numeric:tabular-nums}
+  .basis{display:block;font:11px/1 var(--mono);color:var(--ink-muted);margin-top:4px}
+  .flag{font:11px/1 var(--mono);color:var(--warning)}
+
+  /* ---- scope + status marks ---- */
+  .scope{display:inline-flex;align-items:center;gap:5px;font:600 10px/1 var(--mono);
+         letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);
+         border:1px solid var(--hairline);border-radius:3px;padding:3px 6px}
+  .scope .dot{width:5px;height:5px;border-radius:50%}
+  .scope.voice .dot{background:var(--t-score)} .scope.text .dot{background:var(--t-noul)}
+
+  /* ---- drawer ---- */
+  .drawer{display:grid;grid-template-columns:1fr 420px;min-height:340px}
+  .drawer .left{border-right:1px solid var(--hairline);padding:16px}
+  .drawer .right{padding:16px}
+  .dhead{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--hairline);
+         background:var(--surface-2);font:12px/1 var(--mono)}
+  .dhead .id{font-weight:600;letter-spacing:.04em}
+  .dhead .dim{color:var(--ink-muted)}
+  .turn{display:grid;grid-template-columns:64px 1fr;gap:10px;padding:5px 0;font-size:13px}
+  .turn .who{font:600 10px/1.6 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--ink-muted)}
+  .turn.agent .who{color:var(--t-noul)}
+  .turn.system{color:var(--ink-muted);font-style:italic}
+  .r{padding:11px 0;border-bottom:1px solid var(--hairline)}
+  .r:last-child{border-bottom:0}
+  .rh{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+  .rn{font:12.5px/1.35 var(--mono);color:var(--ink-1)}
+  .rv{font:600 12.5px/1 var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .rq{font:12px/1.45 var(--sans);color:var(--ink-2);margin:5px 0 6px}
+  .meta{display:flex;gap:8px;flex-wrap:wrap;font:11px/1.4 var(--mono);color:var(--ink-muted);align-items:center}
+
+  footer{margin-top:40px;font:11.5px/1.6 var(--mono);color:var(--ink-muted)}
+</style>
+
+<div class="wrap">
+<div class="state">State 1 · chrome, run form and channel filter</div>
+<div class="card">
+  <div class="bar">
+    <span class="brand">jev-cognigy-qa<span class="dim">$</span></span>
+    <div class="tabs"><button class="tab on">Score</button><button class="tab">Rubrics</button></div>
+    <span class="env">api-trial-us.cognigy.ai</span>
+    <button class="theme">◐ light</button>
+  </div>
+  <div class="body">
+    <div class="grid">
+      <div class="f"><label class="lbl">Project</label><select class="ctl"><option>phillip-d-sandbox</option></select></div>
+      <div class="f"><label class="lbl">Endpoint</label><select class="ctl"><option>Any</option></select></div>
+      <div class="f"><label class="lbl">From</label><input class="ctl" value="2026-09-14"></div>
+      <div class="f"><label class="lbl">To</label><input class="ctl" value="2026-09-22"></div>
+    </div>
+    <div class="grid two" style="max-width:640px">
+      <div class="f"><label class="lbl">Max sessions</label><select class="ctl"><option>100</option></select></div>
+      <div class="f"><label class="lbl">Skip already scored</label><select class="ctl"><option>Yes</option></select></div>
+    </div>
+  </div>
+  <div class="filter">
+    <span class="lead">Include</span>
+    <button class="chip panel" aria-pressed="true"><span class="dot"></span>Interaction Panel <span class="n">56</span></button>
+    <button class="chip voice" aria-pressed="true"><span class="dot"></span>Voice <span class="n">2</span></button>
+    <button class="chip text" aria-pressed="false"><span class="dot"></span>REST API <span class="n">9</span></button>
+  </div>
+  <div class="status">
+    <span class="line"><b>58</b> sessions match · <b>50</b> already scored · <b>8</b> to score · <b>626</b> records</span>
+    <span class="actions"><button class="btn ghost">Preview</button><button class="btn">Score sessions</button></span>
+  </div>
+</div>
+<p class="note">Labels become uppercase mono at 10px — they read as field names rather than prose.
+Inputs are monospace because every value in them is data: an id, a date, a count. Radii drop
+from 7–10px to 4–6px, which is most of what makes it feel like a tool rather than a form.</p>
+
+<div class="state">State 2 · results table</div>
+<div class="card">
+  <table>
+    <thead><tr><th>Session</th><th>Channel</th><th>When</th><th>Flow</th><th class="n">Turns</th><th class="n">Overall</th><th>Review</th></tr></thead>
+    <tbody>
+      <tr><td class="sid">2536f3ae</td><td>Interaction Panel</td><td class="when">09-18 12:49</td><td>API - JEV Inference</td><td class="n">3</td>
+          <td class="n"><span class="meter"><span class="bars">████<span class="off">██████</span></span><span class="v">2.1</span></span><span class="basis">9 / 10 rubrics</span></td>
+          <td><span class="flag">3 low conf</span></td></tr>
+      <tr><td class="sid">abf44eb2</td><td>Interaction Panel</td><td class="when">09-21 10:31</td><td>JEV AMD</td><td class="n">2</td>
+          <td class="n"><span class="meter"><span class="bars">█████<span class="off">█████</span></span><span class="v">2.6</span></span><span class="basis">9 / 10 rubrics</span></td>
+          <td><span class="flag">1 low conf</span></td></tr>
+      <tr><td class="sid">4c89ce37</td><td>Interaction Panel</td><td class="when">09-18 12:48</td><td>API - JEV Inference</td><td class="n">3</td>
+          <td class="n"><span class="meter"><span class="bars">█████<span class="off">█████</span></span><span class="v">2.7</span></span><span class="basis">9 / 10 rubrics</span></td>
+          <td></td></tr>
+      <tr><td class="sid">3a99b160</td><td>Voice</td><td class="when">09-15 19:49</td><td>JEV AMD</td><td class="n">21</td>
+          <td class="n"><span class="meter"><span class="bars">█████████<span class="off">█</span></span><span class="v">4.6</span></span><span class="basis">10 / 10 rubrics</span></td>
+          <td></td></tr>
+    </tbody>
+  </table>
+</div>
+<p class="note">The whole row is monospace, so session ids, timestamps, turn counts and scores
+form real columns. The meter is block characters rather than a div — it sits on the same
+grid as the number beside it and needs no layout of its own. The voice session shows
+<b>10 / 10</b> because the voice-scoped rubric applied to it; the panel sessions show 9.</p>
+
+<div class="state">State 3 · session drawer</div>
+<div class="card">
+  <div class="dhead"><span class="id">2536F3AE</span><span class="dim">·</span><span class="dim">3 turns</span>
+    <span class="dim">·</span><span class="dim">Interaction Panel</span><span class="dim">·</span><span class="dim">API - JEV Inference</span></div>
+  <div class="drawer">
+    <div class="left">
+      <div class="turn"><span class="who">User</span><span>hi</span></div>
+      <div class="turn agent"><span class="who">Agent</span><span>How can I help you today?</span></div>
+      <div class="turn"><span class="who">User</span><span>i want to dispute this calim</span></div>
+      <div class="turn system"><span class="who"></span><span>[call ended by caller · 7s]</span></div>
+    </div>
+    <div class="right">
+      <div class="r">
+        <div class="rh"><span class="rn">confirmed details back</span><span class="rv">no</span></div>
+        <div class="rq">Did the agent read the details it collected back to the customer to confirm them before acting on them?</div>
+        <div class="meta"><span>probability 0.04</span></div>
+      </div>
+      <div class="r">
+        <div class="rh"><span class="rn">confirmed spelling <span class="scope voice"><span class="dot"></span>Voice</span></span><span class="rv" style="color:var(--ink-muted)">N/A</span></div>
+        <div class="rq">Did the agent read back or confirm the spelling of anything the customer spelled out?</div>
+        <div class="meta"><span>Only applies to voice calls — never asked.</span></div>
+      </div>
+      <div class="r">
+        <div class="rh"><span class="rn">knowledge relevant</span><span class="rv">0.3</span></div>
+        <div class="rq">How well did the agent's answers address what the customer actually asked?</div>
+        <div class="meta"><span>confidence 0.54</span><span class="flag">low</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="note"><b>This panel is deliberately unchanged in substance.</b> It is restyled and
+nothing more — same rows, same wording, same always-expanded questions. The chevron and the
+status marks are the next feature, so the drawer is rebuilt once on settled tokens rather
+than twice. What this state is really here to prove is that the rubric question stays
+<i>proportional and readable</i> while everything around it goes monospace.</p>
+
+<div class="state">State 4 · rubric list and editor</div>
+<div style="display:grid;grid-template-columns:1fr 420px;gap:18px;align-items:start">
+  <div class="card">
+    <table>
+      <thead><tr><th>Rubric</th><th>Type</th><th class="n">Weight</th></tr></thead>
+      <tbody>
+        <tr><td class="prose-cell"><b style="font-family:var(--mono);font-size:12.5px">confirmed details back</b>
+            <div class="rd">Did the agent read the details it collected back to the customer to confirm them?</div></td>
+            <td>boolean</td><td class="n">2</td></tr>
+        <tr><td class="prose-cell"><b style="font-family:var(--mono);font-size:12.5px">confirmed spelling</b>
+            <span class="scope voice"><span class="dot"></span>Voice</span>
+            <div class="rd">Did the agent read back or confirm the spelling of anything the customer spelled out?</div></td>
+            <td>boolean</td><td class="n">2</td></tr>
+        <tr><td class="prose-cell"><b style="font-family:var(--mono);font-size:12.5px">tone</b>
+            <div class="rd">How appropriate was the agent's tone for this customer's situation?</div></td>
+            <td>score</td><td class="n">1</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="card body">
+    <div class="f"><label class="lbl">Name</label><input class="ctl" value="confirmed spelling"></div>
+    <div class="f"><label class="lbl">Question put to the model</label>
+      <textarea class="ctl" rows="3">Did the agent read back or confirm the spelling of anything the customer spelled out?</textarea>
+      <p class="help">Ask about something observable in the transcript. A question the model can
+        answer the same way twice scores far better than a vague one.</p></div>
+    <div class="f"><label class="lbl">Applies to</label><select class="ctl"><option>Voice calls only</option></select></div>
+    <div class="f"><label class="lbl">Extra instruction on voice calls</label>
+      <textarea class="ctl" rows="2">The customer's words come from speech recognition, so a misheard name is not by itself an agent failure.</textarea></div>
+    <div class="grid two">
+      <div class="f"><label class="lbl">Weight</label><input class="ctl" value="2"></div>
+      <div class="f"><label class="lbl">A high answer is</label><select class="ctl"><option>Good</option></select></div>
+    </div>
+  </div>
+</div>
+<p class="note">Rubric <i>names</i> go monospace — they are identifiers you match against a
+results column. Rubric <i>questions</i> stay proportional, in both the list and the editor,
+because they are sentences. This is the split the whole system rests on.</p>
+
+<div class="state">State 5 · light</div>
+<div class="card" id="light-demo" style="--plane:#f4f4f1;--surface-1:#fcfcfb;--surface-2:#eeeeea;--ink-1:#0b0b0b;--ink-2:#52514e;--ink-muted:#898781;--hairline:#e1e0d9;--border:rgba(11,11,11,.12);--t-noul:#2a78d6;--meter-fill:#2a78d6;background:var(--surface-1);color:var(--ink-1)">
+  <div class="bar">
+    <span class="brand">jev-cognigy-qa<span class="dim">$</span></span>
+    <div class="tabs"><button class="tab on">Score</button><button class="tab">Rubrics</button></div>
+    <span class="env">api-trial-us.cognigy.ai</span>
+    <button class="theme">◐ dark</button>
+  </div>
+  <table>
+    <thead><tr><th>Session</th><th>Channel</th><th class="n">Turns</th><th class="n">Overall</th><th>Review</th></tr></thead>
+    <tbody>
+      <tr><td class="sid">2536f3ae</td><td>Interaction Panel</td><td class="n">3</td>
+          <td class="n"><span class="meter"><span class="bars">████<span class="off">██████</span></span><span class="v">2.1</span></span><span class="basis">9 / 10 rubrics</span></td>
+          <td><span class="flag" style="color:#b07d05">3 low conf</span></td></tr>
+      <tr><td class="sid">3a99b160</td><td>Voice</td><td class="n">21</td>
+          <td class="n"><span class="meter"><span class="bars">█████████<span class="off">█</span></span><span class="v">4.6</span></span><span class="basis">10 / 10 rubrics</span></td>
+          <td></td></tr>
+    </tbody>
+  </table>
+</div>
+<p class="note">Light stays correct and stays legible; it is simply not the default any more.
+Note the "low conf" flag darkens on light — <code>#fab219</code> is 1.79:1 against the light
+surface, which is why warning-coloured <i>text</i> gets a darker step there while the dot in a
+status mark keeps the true hue beside a word.</p>
+
+<footer>
+720px — the four-up run form stacks to two columns, the drawer's transcript and scores stack
+vertically, and the results table drops the When and Flow columns. No horizontal scroll.<br>
+Dark is the default regardless of OS preference; the ◐ control in the top bar switches and
+the choice persists. The <code>[data-theme]</code> hooks already exist in app.css and are
+currently dead code — nothing ever sets the attribute.
+</footer>
+</div>
