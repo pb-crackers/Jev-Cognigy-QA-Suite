@@ -332,7 +332,7 @@ function trendChart(trend) {
 
 function rubricTable(detail) {
   if (!detail.rubrics.length) return el('p', 'hint', 'No rubrics are switched on for this agent.');
-  const table = el('table', 'agent-table');
+  const table = el('table', 'agent-table rubric-health');
   const head = el('tr');
   for (const [label, cls] of [['Rubric', ''], ['Passing', 'n'], ['Answered', 'n'], ['Weight', 'n'], ['Validity', 'n']]) head.append(el('th', cls, label));
   const thead = el('thead');
