@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Rubric } from '../rubrics/model.ts';
+import type { Agent } from '../agents/model.ts';
 import { databaseFile } from '../paths.ts';
 
 export interface RunRow {
@@ -22,6 +23,8 @@ export interface RunRow {
   sessions: number;
   costUsd: number;
   ms: number;
+  /** The agent this run collected for; absent for an ad-hoc run. */
+  agentId?: string | null;
 }
 
 export interface SessionRow {
@@ -41,6 +44,21 @@ export interface SessionRow {
   transcript: string;
   costUsd: number;
   ms: number;
+  /** When the session's newest record was written, so growth after scoring is seen. */
+  lastAt?: string | null;
+  /** How much of the session's agent output has a logged LLM call behind it. */
+  traceCoverage?: TraceCoverage | null;
+}
+
+export type TraceCoverage = 'full' | 'partial' | 'none';
+
+/** Where the collector has got to for one agent. */
+export interface AgentState {
+  agentId: string;
+  /** Everything settled before this instant has been collected. */
+  watermark: string | null;
+  lastCollectedAt: string | null;
+  lastError: string | null;
 }
 
 export interface ResultRow {
@@ -79,6 +97,33 @@ CREATE TABLE IF NOT EXISTS result (
   PRIMARY KEY (run_id, session_id, rubric_id)
 );
 CREATE INDEX IF NOT EXISTS result_by_run ON result (run_id);
+CREATE INDEX IF NOT EXISTS result_by_session ON result (session_id, rubric_id);
+CREATE TABLE IF NOT EXISTS agent (
+  id TEXT PRIMARY KEY,
+  json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_state (
+  agent_id TEXT PRIMARY KEY, watermark TEXT, last_collected_at TEXT, last_error TEXT
+);
+CREATE TABLE IF NOT EXISTS trace (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id TEXT NOT NULL, session_id TEXT NOT NULL, input_id TEXT,
+  event_at TEXT NOT NULL, received_at TEXT NOT NULL, json TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS trace_by_session ON trace (agent_id, session_id);
+CREATE TABLE IF NOT EXISTS alert (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  agent_id TEXT NOT NULL, rubric_id TEXT NOT NULL, window_key TEXT NOT NULL,
+  happened_at TEXT NOT NULL, detected_at TEXT NOT NULL, count INTEGER NOT NULL,
+  sessions TEXT NOT NULL, delivered TEXT NOT NULL,
+  UNIQUE (agent_id, rubric_id, window_key)
+);
+CREATE TABLE IF NOT EXISTS validity (
+  rubric_id TEXT PRIMARY KEY, json TEXT NOT NULL, computed_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS coverage (
+  agent_id TEXT PRIMARY KEY, json TEXT NOT NULL, computed_at TEXT NOT NULL
+);
 `;
 
 export class Store {
@@ -98,11 +143,17 @@ export class Store {
    * table's own schema.
    */
   #migrate(): void {
-    const columns = this.#db.prepare('PRAGMA table_info(session)').all() as { name: string }[];
-    const names = new Set(columns.map((column) => column.name));
-    if (!names.has('channel_label')) {
-      this.#db.exec('ALTER TABLE session ADD COLUMN channel_label TEXT');
-    }
+    const has = (table: string, column: string) =>
+      (this.#db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some(
+        (row) => row.name === column,
+      );
+    const add = (table: string, column: string, type: string) => {
+      if (!has(table, column)) this.#db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    };
+    add('session', 'channel_label', 'TEXT');
+    add('session', 'last_at', 'TEXT');
+    add('session', 'trace_coverage', 'TEXT');
+    add('run', 'agent_id', 'TEXT');
   }
 
   close(): void {
@@ -145,14 +196,14 @@ export class Store {
     this.#db
       .prepare(
         `INSERT INTO run (id, started_at, project_id, project_name, endpoint_label,
-           from_ts, to_ts, sessions, cost_usd, ms)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           from_ts, to_ts, sessions, cost_usd, ms, agent_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET sessions = excluded.sessions,
            cost_usd = excluded.cost_usd, ms = excluded.ms`,
       )
       .run(
         run.id, run.startedAt, run.projectId, run.projectName, run.endpointLabel,
-        run.fromTs, run.toTs, run.sessions, run.costUsd, run.ms,
+        run.fromTs, run.toTs, run.sessions, run.costUsd, run.ms, run.agentId ?? null,
       );
   }
 
@@ -164,7 +215,7 @@ export class Store {
       id: row.id, startedAt: row.started_at, projectId: row.project_id,
       projectName: row.project_name, endpointLabel: row.endpoint_label,
       fromTs: row.from_ts, toTs: row.to_ts, sessions: row.sessions,
-      costUsd: row.cost_usd, ms: row.ms,
+      costUsd: row.cost_usd, ms: row.ms, agentId: row.agent_id ?? null,
     }));
   }
 
@@ -175,11 +226,12 @@ export class Store {
       .prepare(
         `INSERT INTO session (run_id, session_id, started_at, endpoint_label, channel,
            channel_label, flow_name, turns, chunks, rating, rating_comment, unscoreable,
-           transcript, cost_usd, ms)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           transcript, cost_usd, ms, last_at, trace_coverage)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(run_id, session_id) DO UPDATE SET
            turns = excluded.turns, chunks = excluded.chunks,
-           transcript = excluded.transcript, cost_usd = excluded.cost_usd, ms = excluded.ms`,
+           transcript = excluded.transcript, cost_usd = excluded.cost_usd, ms = excluded.ms,
+           last_at = excluded.last_at, trace_coverage = excluded.trace_coverage`,
       )
       .run(
         session.runId, session.sessionId, session.startedAt, session.endpointLabel,
@@ -187,6 +239,7 @@ export class Store {
         session.turns, session.chunks,
         session.rating, session.ratingComment, session.unscoreable,
         session.transcript, session.costUsd, session.ms,
+        session.lastAt ?? null, session.traceCoverage ?? null,
       );
 
     const insert = this.#db.prepare(
@@ -215,6 +268,7 @@ export class Store {
       turns: row.turns, chunks: row.chunks, rating: row.rating,
       ratingComment: row.rating_comment, unscoreable: row.unscoreable,
       transcript: row.transcript, costUsd: row.cost_usd, ms: row.ms,
+      lastAt: row.last_at ?? null, traceCoverage: row.trace_coverage ?? null,
     }));
   }
 
@@ -238,5 +292,138 @@ export class Store {
       )
       .all(projectId) as { session_id: string }[];
     return new Set(rows.map((row) => row.session_id));
+  }
+
+  /**
+   * Which rubrics each session has already been answered on, across every run,
+   * and when the session was last seen.
+   *
+   * An agent grades against its own rubric set, which is rarely the set an
+   * ad-hoc run used. Skipping by session alone would leave an agent's rubrics
+   * unanswered on any session someone had scored before, so an agent run skips
+   * per session × rubric instead.
+   */
+  scoredRubrics(sessionIds: string[]): Map<string, { rubrics: Set<string>; lastAt: string | null }> {
+    const out = new Map<string, { rubrics: Set<string>; lastAt: string | null }>();
+    if (sessionIds.length === 0) return out;
+    const marks = sessionIds.map(() => '?').join(',');
+    const rows = this.#db
+      .prepare(
+        `SELECT r.session_id, r.rubric_id, s.last_at FROM result r
+         JOIN session s ON s.run_id = r.run_id AND s.session_id = r.session_id
+         WHERE r.session_id IN (${marks})`,
+      )
+      .all(...sessionIds) as { session_id: string; rubric_id: string; last_at: string | null }[];
+    for (const row of rows) {
+      const entry = out.get(row.session_id) ?? { rubrics: new Set<string>(), lastAt: null };
+      entry.rubrics.add(row.rubric_id);
+      if (row.last_at && (!entry.lastAt || row.last_at > entry.lastAt)) entry.lastAt = row.last_at;
+      out.set(row.session_id, entry);
+    }
+    return out;
+  }
+
+  /**
+   * The newest answer for every (session, rubric), merged across runs.
+   *
+   * One session's answers can be spread over several runs — an ad-hoc run that
+   * answered nine rubrics, then an agent run that answered the one it was
+   * missing. Health reads them as one set.
+   */
+  latestResults(sessionIds: string[]): ResultRow[] {
+    if (sessionIds.length === 0) return [];
+    const marks = sessionIds.map(() => '?').join(',');
+    const rows = this.#db
+      .prepare(
+        `SELECT r.* FROM result r
+         JOIN run ru ON ru.id = r.run_id
+         WHERE r.session_id IN (${marks})
+         ORDER BY ru.started_at ASC`,
+      )
+      .all(...sessionIds) as Record<string, never>[];
+    const latest = new Map<string, ResultRow>();
+    for (const row of rows) {
+      latest.set(`${row.session_id}\u0000${row.rubric_id}`, {
+        runId: row.run_id, sessionId: row.session_id, rubricId: row.rubric_id,
+        raw: row.raw, confidence: row.confidence, chunks: row.chunks, decidedBy: row.decided_by,
+      });
+    }
+    return [...latest.values()];
+  }
+
+  /** The newest stored row for each session an agent has collected. */
+  agentSessions(agentId: string, since?: string): SessionRow[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT s.* FROM session s JOIN run r ON r.id = s.run_id
+         WHERE r.agent_id = ? ${since ? 'AND s.started_at >= ?' : ''}
+         ORDER BY r.started_at ASC`,
+      )
+      .all(...(since ? [agentId, since] : [agentId])) as Record<string, never>[];
+    const newest = new Map<string, SessionRow>();
+    for (const row of rows) {
+      newest.set(row.session_id, {
+        runId: row.run_id, sessionId: row.session_id, startedAt: row.started_at,
+        endpointLabel: row.endpoint_label, channel: row.channel,
+        channelLabel: row.channel_label, flowName: row.flow_name,
+        turns: row.turns, chunks: row.chunks, rating: row.rating,
+        ratingComment: row.rating_comment, unscoreable: row.unscoreable,
+        transcript: row.transcript, costUsd: row.cost_usd, ms: row.ms,
+        lastAt: row.last_at ?? null, traceCoverage: row.trace_coverage ?? null,
+      });
+    }
+    return [...newest.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }
+
+  // ---- agents ----
+
+  agents(): Agent[] {
+    const rows = this.#db.prepare('SELECT json FROM agent ORDER BY id').all() as { json: string }[];
+    return rows.map((row) => JSON.parse(row.json) as Agent);
+  }
+
+  agent(id: string): Agent | undefined {
+    const row = this.#db.prepare('SELECT json FROM agent WHERE id = ?').get(id) as
+      | { json: string }
+      | undefined;
+    return row ? (JSON.parse(row.json) as Agent) : undefined;
+  }
+
+  saveAgent(agent: Agent): void {
+    this.#db
+      .prepare('INSERT INTO agent (id, json) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET json = excluded.json')
+      .run(agent.id, JSON.stringify(agent));
+  }
+
+  /**
+   * Removes the definition and where its collector had got to. Scored sessions
+   * stay: they belong to runs, and a run is history, not configuration.
+   */
+  deleteAgent(id: string): void {
+    this.#db.prepare('DELETE FROM agent WHERE id = ?').run(id);
+    this.#db.prepare('DELETE FROM agent_state WHERE agent_id = ?').run(id);
+  }
+
+  agentState(agentId: string): AgentState {
+    const row = this.#db.prepare('SELECT * FROM agent_state WHERE agent_id = ?').get(agentId) as
+      | Record<string, string | null>
+      | undefined;
+    return {
+      agentId,
+      watermark: row?.watermark ?? null,
+      lastCollectedAt: row?.last_collected_at ?? null,
+      lastError: row?.last_error ?? null,
+    };
+  }
+
+  saveAgentState(state: AgentState): void {
+    this.#db
+      .prepare(
+        `INSERT INTO agent_state (agent_id, watermark, last_collected_at, last_error)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(agent_id) DO UPDATE SET watermark = excluded.watermark,
+           last_collected_at = excluded.last_collected_at, last_error = excluded.last_error`,
+      )
+      .run(state.agentId, state.watermark, state.lastCollectedAt, state.lastError);
   }
 }

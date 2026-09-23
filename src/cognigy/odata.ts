@@ -37,6 +37,21 @@ function odataString(value: string): string {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
+/**
+ * An OData clause for an agent's traffic: any of its endpoints, and the
+ * Interaction Panel only when asked for. Chained `or`, never `in`, which this
+ * OData rejects. `null` means the agent has no traffic at all, and the caller
+ * should not query.
+ */
+export function endpointClause(names: readonly string[], includePanel: boolean): string | null {
+  const clauses = [...new Set(names.map((name) => name.trim()).filter(Boolean))].map(
+    (name) => `endpointName eq ${odataString(name)}`,
+  );
+  if (includePanel) clauses.push('endpointName eq null');
+  if (clauses.length === 0) return null;
+  return clauses.length === 1 ? clauses[0] : `(${clauses.join(' or ')})`;
+}
+
 export class OdataClient {
   readonly #base: string;
   readonly #apiKey: string;
@@ -131,6 +146,18 @@ export class OdataClient {
      * assembled and never scored.
      */
     channels?: readonly string[];
+    /**
+     * An agent's endpoints, by name. Takes precedence over `endpointName`. With
+     * `includePanel` the Interaction Panel is added; with neither there is no
+     * traffic and nothing is queried.
+     */
+    endpointNames?: readonly string[];
+    includePanel?: boolean;
+    /**
+     * Walk oldest-first. Catch-up after a gap has to process sessions in the
+     * order they happened, or the watermark would jump past unprocessed ones.
+     */
+    oldestFirst?: boolean;
     limit: number;
   }): Promise<SessionSummary[]> {
     const clauses = [
@@ -138,7 +165,11 @@ export class OdataClient {
       `timestamp ge ${options.from}`,
       `timestamp le ${options.to}`,
     ];
-    if (options.endpointName === null) clauses.push('endpointName eq null');
+    if (options.endpointNames) {
+      const traffic = endpointClause(options.endpointNames, options.includePanel ?? false);
+      if (!traffic) return [];
+      clauses.push(traffic);
+    } else if (options.endpointName === null) clauses.push('endpointName eq null');
     else if (options.endpointName !== undefined) {
       clauses.push(`endpointName eq ${odataString(options.endpointName)}`);
     }
@@ -148,12 +179,14 @@ export class OdataClient {
 
     const byId = new Map<string, SessionSummary>();
 
+    const order = options.oldestFirst ? 'asc' : 'desc';
+
     // OData here has no $apply/groupby, so sessions are derived by walking
-    // records newest-first and folding them together.
+    // records and folding them together.
     for (let skip = 0; skip < 20_000; skip += 1000) {
       const page = await this.#get<{ value: ConversationRecord[] }>(
         `/Conversations?$filter=${encodeURIComponent(clauses.join(' and '))}` +
-          `&$orderby=timestamp desc&$top=1000&$skip=${skip}` +
+          `&$orderby=timestamp ${order}&$top=1000&$skip=${skip}` +
           `&$select=sessionId,timestamp,endpointName,channel,rating,isMasked,type`,
       );
 
@@ -162,8 +195,13 @@ export class OdataClient {
         if (existing) {
           existing.records++;
           if (record.timestamp < existing.startedAt) existing.startedAt = record.timestamp;
+          if (record.timestamp > existing.lastAt) existing.lastAt = record.timestamp;
           if (record.rating !== null) existing.rating = record.rating;
           if (record.isMasked) existing.masked = true;
+        } else if (options.oldestFirst && byId.size >= options.limit) {
+          // Full: later records may still extend sessions already held, but no
+          // new session is started beyond the limit.
+          continue;
         } else {
           byId.set(record.sessionId, {
             sessionId: record.sessionId,
@@ -176,16 +214,17 @@ export class OdataClient {
             records: 1,
           });
         }
-        if (byId.size >= options.limit && page.value.length < 1000) break;
+        if (!options.oldestFirst && byId.size >= options.limit && page.value.length < 1000) break;
       }
 
       if (page.value.length < 1000) break;
       if (byId.size >= options.limit) break;
     }
 
-    return [...byId.values()]
-      .sort((a, b) => b.lastAt.localeCompare(a.lastAt))
-      .slice(0, options.limit);
+    const all = [...byId.values()];
+    return options.oldestFirst
+      ? all.sort((a, b) => a.startedAt.localeCompare(b.startedAt)).slice(0, options.limit)
+      : all.sort((a, b) => b.lastAt.localeCompare(a.lastAt)).slice(0, options.limit);
   }
 
   /** Cheap liveness probe used by `init`. */
