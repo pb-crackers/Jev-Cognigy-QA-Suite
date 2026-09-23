@@ -16,22 +16,47 @@ import { collectAgent, type CollectDeps, type CollectReport } from './collect.ts
 
 export const TICK_MS = 60_000;
 
-export function isDue(agent: Agent, state: AgentState, now: Date, backlog: boolean): boolean {
+export function isDue(agent: Agent, state: AgentState, now: Date, backlog: boolean, intervalMinutes?: number): boolean {
   if (!agent.enabled) return false;
   if (backlog || !state.lastCollectedAt) return true;
-  return now.getTime() - Date.parse(state.lastCollectedAt) >= agent.intervalMinutes * 60_000;
+  return now.getTime() - Date.parse(state.lastCollectedAt) >= (intervalMinutes ?? agent.intervalMinutes) * 60_000;
 }
+
+/** How many recent collections are kept for the live activity feed. */
+const RECENT = 40;
 
 export class Scheduler {
   readonly #deps: CollectDeps;
   readonly #onReport: (report: CollectReport) => void;
   readonly #backlog = new Set<string>();
+  readonly #recent: CollectReport[] = [];
+  readonly #intervalMinutes: number | undefined;
   #timer: ReturnType<typeof setInterval> | undefined;
   #busy = false;
+  #current: string | undefined;
 
-  constructor(deps: CollectDeps, onReport: (report: CollectReport) => void = () => {}) {
+  /**
+   * `intervalMinutes` overrides every agent's own interval without changing it
+   * — demo mode collects each minute while the agents keep their real settings.
+   */
+  constructor(
+    deps: CollectDeps,
+    onReport: (report: CollectReport) => void = () => {},
+    options: { intervalMinutes?: number } = {},
+  ) {
     this.#deps = deps;
     this.#onReport = onReport;
+    this.#intervalMinutes = options.intervalMinutes;
+  }
+
+  /** The most recent collections, newest first. */
+  get recent(): CollectReport[] {
+    return [...this.#recent];
+  }
+
+  /** The agent being collected right now, if any. */
+  get collecting(): string | undefined {
+    return this.#current;
   }
 
   start(tickMs = TICK_MS): void {
@@ -58,7 +83,7 @@ export class Scheduler {
     const reports: CollectReport[] = [];
     try {
       for (const agent of this.#deps.store.agents()) {
-        if (!isDue(agent, this.#deps.store.agentState(agent.id), now, this.#backlog.has(agent.id))) continue;
+        if (!isDue(agent, this.#deps.store.agentState(agent.id), now, this.#backlog.has(agent.id), this.#intervalMinutes)) continue;
         reports.push(await this.#run(agent.id, now));
       }
     } finally {
@@ -79,10 +104,17 @@ export class Scheduler {
   }
 
   async #run(agentId: string, now: Date): Promise<CollectReport> {
-    const report = await collectAgent(agentId, this.#deps, now);
-    if (report.backlog) this.#backlog.add(agentId);
-    else this.#backlog.delete(agentId);
-    this.#onReport(report);
-    return report;
+    this.#current = agentId;
+    try {
+      const report = await collectAgent(agentId, this.#deps, now);
+      if (report.backlog) this.#backlog.add(agentId);
+      else this.#backlog.delete(agentId);
+      this.#recent.unshift(report);
+      this.#recent.length = Math.min(this.#recent.length, RECENT);
+      this.#onReport(report);
+      return report;
+    } finally {
+      this.#current = undefined;
+    }
   }
 }

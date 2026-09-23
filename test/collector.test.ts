@@ -117,6 +117,16 @@ describe('collecting one agent', () => {
     store.close();
   });
 
+  it('scores sooner when demo mode shortens the settle time', async () => {
+    const { store, agent } = setup();
+    const live = feed([{ id: 's1', startedAt: minutesAgo(8), lastAt: minutesAgo(2) }]);
+    const report = await collectAgent(agent.id, { api: cognigy, odata: live.odata, store, notifier: notifier().n, settleMinutes: 1 }, NOW);
+    assert.equal(report.scored, 1);
+    assert.equal(report.watermark, minutesAgo(1));
+    assert.equal(report.at, NOW.toISOString());
+    store.close();
+  });
+
   it('stops the watermark at the last session seen when a catch-up batch is full', async () => {
     const { store, agent } = setup();
     const many = Array.from({ length: BATCH_LIMIT + 50 }, (_, i) => ({
@@ -176,6 +186,18 @@ describe('scheduling', () => {
     assert.equal(isDue(agent, state(minutesAgo(61)), NOW, false), true);
     assert.equal(isDue(agent, state(minutesAgo(1)), NOW, true), true, 'a backlog is due at once');
     assert.equal(isDue({ ...agent, enabled: false }, state(null), NOW, false), false);
+    store.close();
+  });
+
+  it('collects on a shorter interval when one is given, and remembers what it did', async () => {
+    const { store, agent } = setup();
+    assert.equal(isDue(agent, state(minutesAgo(2)), NOW, false, 1), true, 'a one-minute interval overrides hourly');
+    const scheduler = new Scheduler({ api: cognigy, odata: feed([]).odata, store, notifier: notifier().n }, () => {}, { intervalMinutes: 1 });
+    await scheduler.tick(NOW);
+    await scheduler.tick(new Date(NOW.getTime() + 61_000));
+    assert.equal(scheduler.recent.length, 2);
+    assert.equal(scheduler.recent[0].agentId, agent.id);
+    assert.equal(scheduler.collecting, undefined);
     store.close();
   });
 

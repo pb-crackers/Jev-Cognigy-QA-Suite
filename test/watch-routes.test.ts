@@ -86,6 +86,15 @@ describe('agents over HTTP', () => {
     assert.equal(status, 200);
     assert.equal(store.agent('home-loans')!.rubrics.jailbroken, false);
   });
+
+  it('only holds simulated conversations in demo mode', async () => {
+    const { status, body } = await call('/api/agents/home-loans/simulate', { method: 'POST', body: '{}' });
+    assert.equal(status, 403);
+    assert.match(body.error, /demo mode/);
+    const watch = await call('/api/watch');
+    assert.equal(watch.body.demo, false);
+    assert.deepEqual(watch.body.feed, []);
+  });
 });
 
 describe('the webhook', () => {

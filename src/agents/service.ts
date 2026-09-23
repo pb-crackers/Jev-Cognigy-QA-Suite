@@ -121,14 +121,18 @@ export async function resolveEndpoints(
     }
     if (now.name !== endpoint.name) {
       warnings.push(`endpoint "${endpoint.name}" was renamed to "${now.name}"; following the new name`);
-      return { ...endpoint, name: now.name, flowRef: now.flowRef ?? endpoint.flowRef };
     }
-    return endpoint;
+    // Details added after an agent was created — the token, the channel — fill in quietly.
+    return {
+      ...endpoint, name: now.name, flowRef: now.flowRef ?? endpoint.flowRef,
+      channel: now.channel ?? endpoint.channel, urlToken: now.urlToken ?? endpoint.urlToken,
+    };
   });
   const byRef = new Map(flows.map((flow) => [flow.referenceId, flow.name]));
   const flowNames = [...new Set(endpoints.map((endpoint) => endpoint.flowRef && byRef.get(endpoint.flowRef)).filter(Boolean) as string[])];
   const flowsChanged = JSON.stringify(flowNames) !== JSON.stringify(agent.flowNames ?? []);
-  if (warnings.length === 0 && !flowsChanged) return { agent, warnings };
+  const endpointsChanged = JSON.stringify(endpoints) !== JSON.stringify(agent.endpoints);
+  if (!endpointsChanged && !flowsChanged) return { agent, warnings };
   const next = { ...agent, endpoints, flowNames };
   store.saveAgent(next);
   return { agent: next, warnings };

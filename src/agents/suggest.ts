@@ -67,7 +67,9 @@ export async function suggestAgents(api: Api, projectId: string, existing: Agent
       llmNodes: 0,
       noFlow: !endpoint.flowRef || !knownFlows.has(endpoint.flowRef),
     };
-    entry.endpoints.push({ id: endpoint.id, name: endpoint.name, flowRef: endpoint.flowRef, channel: endpoint.channel });
+    entry.endpoints.push({
+      id: endpoint.id, name: endpoint.name, flowRef: endpoint.flowRef, channel: endpoint.channel, urlToken: endpoint.urlToken,
+    });
     entry.llmNodes += info?.llmNodes ?? 0;
     if (owner) entry.ownedBy = owner.id;
     groups.set(key, entry);

@@ -21,6 +21,7 @@ import { checkValidity, type ValidityReport } from './validity/validity.ts';
 import { importTraces, MAX_TRACE_BYTES, receiveTrace } from './traces/receiver.ts';
 import { scoreSessions } from './store/score.ts';
 import { labelFor } from './cognigy/channels.ts';
+import { cast, endpointBase, restEndpoint, simulate, type TurnEvent } from './demo/simulate.ts';
 
 /**
  * Whether a request came from this machine rather than through a tunnel.
@@ -43,7 +44,13 @@ export interface WatchDeps {
   odata: OdataClient;
   store: Store;
   scheduler?: Scheduler;
+  /** Demo mode: fast collection, and the UI refreshes often enough to watch it happen. */
+  demo?: boolean;
+  /** Simulated conversation turns, newest first, for the live feed. */
+  feed?: (TurnEvent & { at: string; agentId: string })[];
 }
+
+const FEED = 80;
 
 type Send = (status: number, body: unknown) => void;
 
@@ -136,9 +143,15 @@ export async function handleWatchRoute(
     }
 
     if (path === '/api/watch') {
+      const names = new Map(store.agents().map((agent) => [agent.id, agent.name]));
       return send(200, {
         publicUrl: config.publicUrl ?? null,
-        scheduler: deps.scheduler ? { running: true, busy: deps.scheduler.busy } : { running: false },
+        demo: Boolean(deps.demo),
+        scheduler: deps.scheduler
+          ? { running: true, collecting: deps.scheduler.collecting ? names.get(deps.scheduler.collecting) ?? deps.scheduler.collecting : null }
+          : { running: false, collecting: null },
+        recent: (deps.scheduler?.recent ?? []).map((report) => ({ ...report, agentName: names.get(report.agentId) ?? report.agentId })),
+        feed: deps.feed ?? [],
       }), true;
     }
 
@@ -191,6 +204,28 @@ export async function handleWatchRoute(
         return send(200, { deleted: id, uninstall }), true;
       }
       if (action === 'collect' && method === 'POST') return send(200, await collect(deps, id)), true;
+      if (action === 'simulate' && method === 'POST') {
+        if (!deps.demo) return send(403, { error: 'Simulated conversations are only available in demo mode.' }), true;
+        const endpoint = restEndpoint(agent);
+        const base = endpointBase(deps.config.cognigyApiBase, process.env.COGNIGY_ENDPOINT_BASE);
+        if (!endpoint || !base) {
+          return send(409, { error: 'This agent has no REST endpoint to talk to, so it cannot be simulated.' }), true;
+        }
+        const body = await readBody<{ count?: number; personas?: string[] }>(request);
+        const personas = cast(body.count ?? 6, body.personas);
+        const feed = deps.feed ?? [];
+        // Runs in the background: the conversations take a minute or two, and
+        // the page watches them arrive through the feed.
+        void simulate({
+          url: `${base}/${endpoint.urlToken}`,
+          personas,
+          onTurn: (event) => {
+            feed.unshift({ ...event, agentId: agent.id, at: new Date().toISOString() });
+            feed.length = Math.min(feed.length, FEED);
+          },
+        });
+        return send(202, { started: personas.map((persona) => persona.id) }), true;
+      }
       if (action === 'logging' && method === 'GET') {
         return send(200, {
           publicUrl: config.publicUrl ?? null,

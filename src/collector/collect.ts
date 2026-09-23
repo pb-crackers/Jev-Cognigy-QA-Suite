@@ -32,10 +32,14 @@ export interface CollectDeps {
   store: Store;
   notifier?: Notifier;
   appUrl?: string;
+  /** How long a session must be quiet before it is scored. Demo mode shortens it. */
+  settleMinutes?: number;
 }
 
 export interface CollectReport {
   agentId: string;
+  /** When the collection ran. */
+  at: string;
   from: string;
   watermark: string;
   found: number;
@@ -55,9 +59,9 @@ export async function collectAgent(agentId: string, deps: CollectDeps, now: Date
   if (!stored) throw new Error(`No agent "${agentId}"`);
   const state = store.agentState(agentId);
   const from = state.watermark ?? new Date(now.getTime() - FIRST_LOOKBACK_HOURS * 3_600_000).toISOString();
-  const settledBefore = new Date(now.getTime() - SETTLE_MINUTES * 60_000).toISOString();
+  const settledBefore = new Date(now.getTime() - (deps.settleMinutes ?? SETTLE_MINUTES) * 60_000).toISOString();
   const report: CollectReport = {
-    agentId, from, watermark: from, found: 0, scored: 0, deferred: 0, costUsd: 0, alertsFired: 0, backlog: false, warnings: [],
+    agentId, at: now.toISOString(), from, watermark: from, found: 0, scored: 0, deferred: 0, costUsd: 0, alertsFired: 0, backlog: false, warnings: [],
   };
 
   try {
