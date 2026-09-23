@@ -210,6 +210,8 @@ export class Store {
     add('session', 'error', 'TEXT');
     add('session', 'attempts', 'INTEGER');
     add('session', 'checks', 'TEXT');
+    // Collections that found nothing used to be recorded as runs; they only buried the real ones.
+    this.#db.exec('DELETE FROM run WHERE agent_id IS NOT NULL AND sessions = 0 AND id NOT IN (SELECT run_id FROM session)');
 
     // Each logged call is stored once, however often it is delivered (see
     // `traceKey`). Existing rows are keyed afresh whenever the key changes, in

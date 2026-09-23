@@ -421,7 +421,10 @@ export async function executeRun(
     ms: Date.now() - startedMs,
     agentId: request.agentId ?? null,
   };
-  store.saveRun(run);
+  // A collection that found nothing to do is not a run anyone needs to see:
+  // in demo mode they arrive every minute and bury the real ones. A run someone
+  // started by hand is always kept, empty or not.
+  if (request.agentId === undefined || done > 0) store.saveRun(run);
 
   onProgress?.({ done, total: candidates.length, costUsd: totals.costUsd, chunksSplit: split });
   return { run, ledger, deferred, scored: scoredSessions, found, truncated: Boolean(found.truncated), failed };
