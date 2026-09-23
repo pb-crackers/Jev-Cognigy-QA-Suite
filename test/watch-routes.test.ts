@@ -127,7 +127,7 @@ describe('agents over HTTP', () => {
 
     const jailbroken = store.rubrics().find((rubric) => rubric.id === 'jailbroken')!;
     const key = locateKey(jailbroken, '0.1', [{ role: 'user' }, { role: 'agent' }]);
-    store.saveLocate('home-loans', 'loc-1', 'jailbroken', { raw: '0.1', key, turnIndex: null, message: null, confidence: 0.8, reason: 'no single message decides this one' });
+    store.saveLocate('home-loans', 'loc-1', 'jailbroken', { raw: '0.1', key, turnIndex: null, message: null, probability: 0.8, reason: 'no single message decides this one' });
     const stored = await ask({ agentId: 'home-loans', rubricId: 'jailbroken' });
     assert.equal(stored.status, 200);
     assert.equal(stored.body.cached, true);

@@ -42,14 +42,14 @@ after(async () => {
 
 describe('which message a verdict rests on', () => {
   it('asks one choice between the agent messages and "none", stating the verdict', async () => {
-    api.setOverrides({ which_quoted_rate: { type: 'choice', choice: 'message_2', confidence: 0.94 } });
+    api.setOverrides({ which_quoted_rate: { type: 'choice', choice: 'message_2', confidence: 0.9, probabilities: { message_1: 0.03, message_2: 0.94, none: 0.03 } } });
     const found = await locate(rate, '0.86', turns, {}, new Ledger(), 's1');
     const request = api.requests.at(-1)!;
     assert.deepEqual(Object.keys(request.questions), ['which_quoted_rate']);
     assert.deepEqual(Object.keys(request.questions.which_quoted_rate.criteria as object), ['message_1', 'message_2', 'none']);
     assert.match(JSON.stringify(request.questions), /was yes\. Which agent message/);
     assert.match(String((request.state as { conversation: string }).conversation), /Agent message 2: A 30-year fixed/);
-    assert.deepEqual(found, { raw: '0.86', turnIndex: 4, message: 2, confidence: 0.94 });
+    assert.deepEqual(found, { raw: '0.86', turnIndex: 4, message: 2, probability: 0.94, runnerUp: 0.03 });
   });
 
   it('says so when no single message decides it', async () => {
@@ -59,7 +59,24 @@ describe('which message a verdict rests on', () => {
     assert.equal(found.reason, 'no single message decides this one');
   });
 
-  it('marks nothing when Jev reports no confidence at all', async () => {
+  it("marks a clear pick even when Jev's own confidence reads low — as live answers do", async () => {
+    // Real distribution for "took card details": 0.64 against 0.18, confidence 0.53.
+    api.setOverrides({ which_quoted_rate: { type: 'choice', choice: 'message_2', confidence: 0.53, probabilities: { message_1: 0.10, message_2: 0.64, none: 0.08, message_3: 0.18 } } });
+    const found = await locate(rate, '0.86', turns, {}, new Ledger(), 's1');
+    assert.equal(found.message, 2);
+    assert.equal(found.turnIndex, 4);
+    assert.equal(found.probability, 0.64);
+  });
+
+  it('marks nothing when two messages are close', async () => {
+    // Real distribution for "asked for sensitive data": 0.42 against 0.38.
+    api.setOverrides({ which_quoted_rate: { type: 'choice', choice: 'message_1', confidence: 0.24, probabilities: { message_1: 0.42, message_2: 0.38, none: 0.19 } } });
+    const found = await locate(rate, '0.86', turns, {}, new Ledger(), 's1');
+    assert.equal(found.turnIndex, null);
+    assert.equal(found.reason, 'Jev isn’t sure which message');
+  });
+
+  it('marks nothing when Jev reports no probability at all', async () => {
     api.setOverrides({ which_quoted_rate: { type: 'choice', choice: 'message_2' } });
     const found = await locate(rate, '0.86', turns, {}, new Ledger(), 's1');
     assert.equal(found.turnIndex, null);
@@ -67,7 +84,7 @@ describe('which message a verdict rests on', () => {
   });
 
   it('marks nothing when Jev is not sure which message', async () => {
-    api.setOverrides({ which_quoted_rate: { type: 'choice', choice: 'message_1', confidence: 0.3 } });
+    api.setOverrides({ which_quoted_rate: { type: 'choice', choice: 'message_1', confidence: 0.3, probabilities: { message_1: 0.35, message_2: 0.33, none: 0.32 } } });
     const found = await locate(rate, '0.86', turns, {}, new Ledger(), 's1');
     assert.equal(found.turnIndex, null);
     assert.equal(found.message, 1);

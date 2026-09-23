@@ -534,7 +534,7 @@ async function openRubric(agentId, rubricId) {
     const quote = el('span', 'quote');
     if (item.located?.quote) {
       quote.append(el('span', 'who', 'Agent'), document.createTextNode(`"${item.located.quote.replace(/\s+/g, ' ').slice(0, 140)}"`));
-      if (item.located.confidence !== null) quote.append(el('span', 'p', `confidence ${item.located.confidence.toFixed(2)}`));
+      if (item.located.probability !== null) quote.append(el('span', 'p', `probability ${item.located.probability.toFixed(2)}`));
     } else if (item.located?.reason) {
       quote.append(el('span', 'muted', item.located.reason));
     } else {
