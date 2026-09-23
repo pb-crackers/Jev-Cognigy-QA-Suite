@@ -107,10 +107,11 @@ export function updateAgent(id: string, change: Partial<AgentInput>, store: Stor
  */
 export async function resolveEndpoints(
   agent: Agent,
-  api: Pick<CognigyApi, 'endpoints'>,
+  api: Pick<CognigyApi, 'endpoints' | 'flows'>,
   store: Store,
 ): Promise<{ agent: Agent; warnings: string[] }> {
-  const live = new Map((await api.endpoints(agent.projectId)).map((endpoint) => [endpoint.id, endpoint]));
+  const [endpointList, flows] = await Promise.all([api.endpoints(agent.projectId), api.flows(agent.projectId)]);
+  const live = new Map(endpointList.map((endpoint) => [endpoint.id, endpoint]));
   const warnings: string[] = [];
   const endpoints = agent.endpoints.map((endpoint) => {
     const now = live.get(endpoint.id);
@@ -124,8 +125,11 @@ export async function resolveEndpoints(
     }
     return endpoint;
   });
-  if (warnings.length === 0) return { agent, warnings };
-  const next = { ...agent, endpoints };
+  const byRef = new Map(flows.map((flow) => [flow.referenceId, flow.name]));
+  const flowNames = [...new Set(endpoints.map((endpoint) => endpoint.flowRef && byRef.get(endpoint.flowRef)).filter(Boolean) as string[])];
+  const flowsChanged = JSON.stringify(flowNames) !== JSON.stringify(agent.flowNames ?? []);
+  if (warnings.length === 0 && !flowsChanged) return { agent, warnings };
+  const next = { ...agent, endpoints, flowNames };
   store.saveAgent(next);
   return { agent: next, warnings };
 }
@@ -148,6 +152,7 @@ export function agentRunRequest(
     label: agent.name,
     endpointNames: agent.endpoints.map((endpoint) => endpoint.name),
     includePanel: agent.includePanel,
+    panelFlowNames: agent.flowNames,
     rubricIds: agentRubrics(agent, rubrics).map((rubric) => rubric.id),
     settledBefore: range.settledBefore,
     oldestFirst: range.oldestFirst,

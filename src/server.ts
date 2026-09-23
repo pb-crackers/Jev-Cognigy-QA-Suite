@@ -21,6 +21,8 @@ import { executeRun, type RunProgress } from './scoring/run.ts';
 import { Store } from './store/db.ts';
 import { scoreSessions } from './store/score.ts';
 import { buildBriefing } from './briefing.ts';
+import { handleWatchRoute } from './watch-routes.ts';
+import type { Scheduler } from './collector/scheduler.ts';
 import { resolveNodes } from './cognigy/links.ts';
 import { fromEnv, missingKeys, type Config } from './config.ts';
 
@@ -35,6 +37,8 @@ interface Deps {
   api: CognigyApi;
   odata: OdataClient;
   store: Store;
+  /** The collector loop, when this process is the monitor. */
+  scheduler?: Scheduler;
 }
 
 async function readJson<T>(stream: AsyncIterable<Buffer>): Promise<T> {
@@ -294,6 +298,7 @@ export function createApp(deps: Deps) {
         });
       }
 
+      if (await handleWatchRoute(request, response, url, deps, send)) return;
       if (url.pathname.startsWith('/api/')) return send(404, { error: 'No such endpoint' });
 
       // Static files, path-traversal guarded.

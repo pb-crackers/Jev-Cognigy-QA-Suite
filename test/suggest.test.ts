@@ -128,6 +128,7 @@ describe('agent rules', () => {
     assert.equal(next.endpoints[0].name, 'REST');
     assert.match(warnings[0], /renamed to "REST"/);
     assert.equal(store.agent('s')?.endpoints[0].name, 'REST');
+    assert.deepEqual(next.flowNames, ['Main'], 'the entry Flow is resolved for panel filtering');
     store.close();
   });
 
