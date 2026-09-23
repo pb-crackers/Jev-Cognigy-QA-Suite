@@ -63,13 +63,13 @@ describe("one rubric's sessions", () => {
     const { store, agent, session } = setup();
     const transcript = [{ role: 'user', text: 'rates?' }, { role: 'agent', text: 'Roughly 6.1% today.' }];
     const id = session('2026-09-23T09:00:00Z', { quoted_rate: '0.86' }, { transcript });
-    store.saveLocate(agent.id, id, 'quoted_rate', { raw: '0.86', key: locateKey(rate, '0.86', transcript as never), turnIndex: 1, message: 1, confidence: 0.94 });
+    store.saveLocate(agent.id, id, 'quoted_rate', { raw: '0.86', key: locateKey(rate, '0.86', transcript as never), turnIndex: 1, message: 1, probability: 0.94 });
     const [row] = rubricSessions(agent, rate, store, '24h', 'all', NOW).sessions;
     assert.equal(row.located?.quote, 'Roughly 6.1% today.');
-    assert.equal(row.located?.confidence, 0.94);
+    assert.equal(row.located?.probability, 0.94);
     const edited = { ...rate, question: 'Did the agent give any rate figure?' };
     assert.equal(rubricSessions(agent, edited, store, '24h', 'all', NOW).sessions[0].located, undefined, 'stale: the question changed');
-    store.saveLocate(agent.id, id, 'quoted_rate', { raw: '0.40', key: locateKey(rate, '0.40', transcript as never), turnIndex: 1, message: 1, confidence: 0.9 });
+    store.saveLocate(agent.id, id, 'quoted_rate', { raw: '0.40', key: locateKey(rate, '0.40', transcript as never), turnIndex: 1, message: 1, probability: 0.9 });
     assert.equal(rubricSessions(agent, rate, store, '24h', 'all', NOW).sessions[0].located, undefined, 'stale: asked about a different answer');
     store.close();
   });

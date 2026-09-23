@@ -4,8 +4,8 @@
  * Jev answers a rubric for the whole conversation and never says where. So,
  * once there is a verdict, Jev is asked one more question — a choice between
  * the agent's messages, plus "no single message" — about why it gave that
- * answer. The message it picks is what the session view marks; its confidence
- * decides whether to mark anything at all.
+ * answer. The message it picks is what the session view marks; how far its
+ * probability stands above the next option decides whether to mark anything.
  *
  * One question, not one per message: it asks exactly "why this answer", and
  * "no single message" is an honest option for verdicts that rest on the
@@ -25,8 +25,16 @@ import type { Agent } from '../agents/model.ts';
 import type { Store } from '../store/db.ts';
 import { Ledger as LedgerClass } from '../metering.ts';
 
-/** Below this, Jev isn't sure which message it was, and nothing is marked. */
-export const LOCATE_CONFIDENCE = 0.5;
+/**
+ * A message is marked when Jev gives it at least this probability, and at least
+ * LOCATE_MARGIN more than the next option. Jev's own `confidence` is a stricter
+ * concentration measure — a clear 0.64 against 0.18 reads 0.53 — so it isn't
+ * what decides.
+ */
+export const LOCATE_PROBABILITY = 0.5;
+export const LOCATE_MARGIN = 0.15;
+/** Bumped when what a stored pointer means changes, so older ones are asked again. */
+const LOCATE_VERSION = 'p2';
 const NONE = 'none';
 /** Enough of a message to recognise it in a list of options. */
 const OPENING_CHARS = 90;
@@ -44,7 +52,10 @@ export interface Located {
   turnIndex: number | null;
   /** Which agent message, counting from 1, as the session view numbers them. */
   message: number | null;
-  confidence: number | null;
+  /** Jev's probability for the message it picked — what the session view shows. */
+  probability: number | null;
+  /** The next most likely option's probability: how clear the pick was. */
+  runnerUp?: number | null;
   /** Why nothing was pointed at, when nothing was. */
   reason?: string;
 }
@@ -69,7 +80,7 @@ function agentCount(turns: Pick<Turn, 'role'>[]): number {
 
 export function locateKey(rubric: Rubric, raw: string, turns: Pick<Turn, 'role'>[]): string {
   const question = createHash('sha256').update(rubric.question).digest('hex').slice(0, 12);
-  return `${raw}|${question}|${agentCount(turns)}`;
+  return `${LOCATE_VERSION}|${raw}|${question}|${agentCount(turns)}`;
 }
 
 function opening(text: string): string {
@@ -101,20 +112,21 @@ function whichQuestion(rubric: Rubric, raw: string, agent: { message: number; te
 
 const questionId = (rubric: Rubric) => `which_${rubric.id}`;
 
-function readPick(
-  answer: { choice?: string; confidence?: number } | undefined,
-  agent: { message: number; turnIndex: number }[],
-  raw: string,
-): Located {
-  const confidence = answer?.confidence ?? null;
+type Pick = { choice?: string; confidence?: number; probabilities?: Record<string, number> } | undefined;
+
+function readPick(answer: Pick, agent: { message: number; turnIndex: number }[], raw: string): Located {
+  const probabilities = answer?.probabilities ?? {};
+  // Without a distribution, Jev's confidence is the closest stand-in for the pick's probability.
+  const probability = answer?.choice ? probabilities[answer.choice] ?? answer.confidence ?? null : null;
+  const others = Object.entries(probabilities).filter(([label]) => label !== answer?.choice).map(([, value]) => value);
+  const runnerUp = others.length ? Math.max(...others) : null;
   const picked = answer?.choice?.match(/^message_(\d+)$/);
-  if (!picked) return { raw, turnIndex: null, message: null, confidence, reason: 'no single message decides this one' };
+  if (!picked) return { raw, turnIndex: null, message: null, probability, runnerUp, reason: 'no single message decides this one' };
   const found = agent.find((item) => item.message === Number(picked[1]));
-  if (!found) return { raw, turnIndex: null, message: null, confidence, reason: 'Jev named a message that isn’t there' };
-  if (confidence === null || confidence < LOCATE_CONFIDENCE) {
-    return { raw, turnIndex: null, message: found.message, confidence, reason: 'Jev isn’t sure which message' };
-  }
-  return { raw, turnIndex: found.turnIndex, message: found.message, confidence };
+  if (!found) return { raw, turnIndex: null, message: null, probability, runnerUp, reason: 'Jev named a message that isn’t there' };
+  const clear = probability !== null && probability >= LOCATE_PROBABILITY && probability - (runnerUp ?? 0) >= LOCATE_MARGIN;
+  if (!clear) return { raw, turnIndex: null, message: found.message, probability, runnerUp, reason: 'Jev isn’t sure which message' };
+  return { raw, turnIndex: found.turnIndex, message: found.message, probability, runnerUp };
 }
 
 /**
@@ -134,7 +146,7 @@ export async function locateAll(
   const out = new Map<string, Located>();
   const { text, agent } = numbered(turns);
   const unanswered = (reason: string) => {
-    for (const { rubric, raw } of answers) out.set(rubric.id, { raw, turnIndex: null, message: null, confidence: null, reason });
+    for (const { rubric, raw } of answers) out.set(rubric.id, { raw, turnIndex: null, message: null, probability: null, reason });
     return out;
   };
   if (answers.length === 0) return out;
@@ -166,7 +178,7 @@ export async function locateAll(
     const label = group.length === 1 ? `${sessionId} [locate ${group[0].rubric.id}]` : `${sessionId} [locate ${group.length}]`;
     const { answers: picks } = await ask({ stage: 'score', label, state, questions, ledger, sessionId });
     for (const { rubric, raw } of group) {
-      out.set(rubric.id, readPick((picks as Record<string, { choice?: string; confidence?: number }>)[questionId(rubric)], agent, raw));
+      out.set(rubric.id, readPick((picks as Record<string, Pick>)[questionId(rubric)], agent, raw));
     }
   }
   return out;

@@ -1256,14 +1256,14 @@ function agentRow(message) {
   return [...document.querySelectorAll('#session-transcript .turn.agent')][message - 1];
 }
 
-function markMessage(message, rubric, confidence, passed) {
+function markMessage(message, rubric, probability, passed) {
   const row = agentRow(message);
   if (!row) return undefined;
   row.classList.add('pointed');
   if (passed) row.classList.add('pass');
   const chip = el('span', 'score-chip');
   chip.append(el('span', 'name', rubric.name));
-  if (confidence !== null) chip.append(el('span', 'value', `confidence ${confidence.toFixed(2)}`));
+  if (probability !== null) chip.append(el('span', 'value', `probability ${probability.toFixed(2)}`));
   const text = row.lastElementChild;
   text.prepend(chip, el('br'));
   row.scrollIntoView({ block: 'center' });
@@ -1298,8 +1298,8 @@ function pinnedRubric(session, rubric) {
       return;
     }
     whereValue.textContent = `#${located.message}`;
-    if (located.confidence !== null) where.append(`confidence ${located.confidence.toFixed(2)} `);
-    const row = markMessage(located.message, rubric, located.confidence, passed === true);
+    if (located.probability !== null) where.append(`probability ${located.probability.toFixed(2)} `);
+    const row = markMessage(located.message, rubric, located.probability, passed === true);
     if (row) {
       const jump = el('button', 'jump', 'Go to it');
       jump.type = 'button';
