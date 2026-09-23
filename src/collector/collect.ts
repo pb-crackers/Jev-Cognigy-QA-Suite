@@ -21,6 +21,11 @@ import { deliverAlert, type Notifier } from '../alerts/deliver.ts';
 import { reconstruct } from '../traces/reconstruct.ts';
 import { checkSession, checkToolCalls } from '../checks/exact.ts';
 import type { Turn } from '../cognigy/transcript.ts';
+import { agentRubrics } from '../agents/model.ts';
+import { normalize } from '../rubrics/model.ts';
+import { locateAll, locateKey } from '../scoring/locate.ts';
+import { fixedState, withToolLines } from '../scoring/state.ts';
+import { Ledger } from '../metering.ts';
 
 /** A session quiet this long is taken to be over. */
 export const SETTLE_MINUTES = 10;
@@ -82,6 +87,41 @@ export function backfillToolCalls(agentId: string, store: Store): number {
   return rebuilt;
 }
 
+/** Older sessions given pointers per collection: a few, so a catch-up never holds collection up for long. */
+export const POINTER_BACKFILL = 3;
+
+/**
+ * Finds which message each answer rests on for sessions scored before that was
+ * done during scoring (or under an older rule), newest first, a few at a time —
+ * so opening an older session doesn't wait on Jev either.
+ */
+export async function backfillPointers(agentId: string, store: Store, limit = POINTER_BACKFILL): Promise<number> {
+  const agent = store.agent(agentId);
+  if (!agent) return 0;
+  const own = agentRubrics(agent, store.rubrics());
+  const byId = new Map(own.map((rubric) => [rubric.id, rubric]));
+  let done = 0;
+  for (const session of store.agentSessions(agentId)) {
+    if (done >= limit) break;
+    if (session.error || session.unscoreable || session.transcript === '[]') continue;
+    const turns = (JSON.parse(session.transcript) as Turn[]).filter((turn) => !turn.tool);
+    const missing = store.latestResults([session.sessionId])
+      .map((result) => ({ rubric: byId.get(result.rubricId)!, raw: result.raw }))
+      .filter(({ rubric, raw }) => rubric && normalize(rubric, rubric.type === 'choice' ? raw : Number(raw)) !== undefined)
+      .filter(({ rubric, raw }) => !store.locateFor(agentId, session.sessionId, rubric.id, locateKey(rubric, raw, turns)));
+    if (missing.length === 0) continue;
+    const traces = store.tracesFor(agentId, session.sessionId);
+    const trace = traces.length ? reconstruct(traces) : undefined;
+    const found = await locateAll(missing, withToolLines(turns, trace), fixedState(trace), new Ledger(), session.sessionId);
+    for (const { rubric, raw } of missing) {
+      const located = found.get(rubric.id);
+      if (located) store.saveLocate(agentId, session.sessionId, rubric.id, { ...located, key: locateKey(rubric, raw, turns) });
+    }
+    done++;
+  }
+  return done;
+}
+
 export async function collectAgent(agentId: string, deps: CollectDeps, now: Date = new Date()): Promise<CollectReport> {
   const { store } = deps;
   const stored = store.agent(agentId);
@@ -128,6 +168,13 @@ export async function collectAgent(agentId: string, deps: CollectDeps, now: Date
       ? [outcome.found.at(-1)!.startedAt, settledBefore].sort()[0]
       : settledBefore;
     report.watermark = candidate > from ? candidate : from;
+
+    try {
+      await backfillPointers(agentId, store);
+    } catch (error) {
+      // A convenience for reviewers; it never fails a collection.
+      report.warnings.push(`could not find messages for older sessions: ${error instanceof Error ? error.message : String(error)}`);
+    }
 
     // Alerts normally look back a fixed span; a catch-up after a long gap must
     // reach back to the oldest day it just scored, or those alerts never fire.
