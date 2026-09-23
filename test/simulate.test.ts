@@ -7,7 +7,7 @@ import { strict as assert } from 'node:assert';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { describe, it } from 'node:test';
-import { cast, endpointBase, PERSONAS, restEndpoint, simulate, type TurnEvent } from '../src/demo/simulate.ts';
+import { cast, endpointBase, LOAN_OFFICER_PERSONAS, LOAN_SERVICING_PERSONAS, PERSONAS, personasFor, restEndpoint, simulate, type TurnEvent } from '../src/demo/simulate.ts';
 import type { Agent } from '../src/agents/model.ts';
 
 describe('where a simulated customer talks', () => {
@@ -46,6 +46,26 @@ describe('who talks', () => {
     assert.deepEqual(cast(3, ['nobody']), []);
     assert.equal(cast(500).length, 30);
     assert.equal(cast(0).length, 1);
+  });
+});
+
+describe('which customers talk to which agent', () => {
+  it('picks the set written for the agent from its name', () => {
+    assert.equal(personasFor({ name: 'Summit Ridge Loan Officer Assistant' }), LOAN_OFFICER_PERSONAS);
+    assert.equal(personasFor({ name: 'Summit Ridge Loan Servicing' }), LOAN_SERVICING_PERSONAS);
+    assert.equal(personasFor({ name: 'Summit Ridge Mortgage Assistant' }), PERSONAS);
+    assert.equal(personasFor({ name: 'Anything else' }), PERSONAS);
+  });
+
+  it('casts from the set it is given, and makes twenty across the fleet', () => {
+    assert.ok(cast(7, undefined, LOAN_SERVICING_PERSONAS).every((persona) => LOAN_SERVICING_PERSONAS.includes(persona)));
+    assert.equal(PERSONAS.length + LOAN_OFFICER_PERSONAS.length + LOAN_SERVICING_PERSONAS.length, 20);
+  });
+
+  it('keeps persona ids unique within each set', () => {
+    for (const set of [PERSONAS, LOAN_OFFICER_PERSONAS, LOAN_SERVICING_PERSONAS]) {
+      assert.equal(new Set(set.map((persona) => persona.id)).size, set.length);
+    }
   });
 });
 
