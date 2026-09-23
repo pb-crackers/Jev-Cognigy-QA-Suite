@@ -115,6 +115,20 @@ export function applies(rubric: Pick<Rubric, 'appliesTo'>, modality: Modality | 
 }
 
 /**
+ * Whether a rubric that needs the agent's logged LLM calls can be answered.
+ *
+ * Only on full coverage. On a partly logged session, "stated a payment without
+ * calling the tool" cannot tell a missing call from a missing log, so the
+ * honest answer is not applicable rather than a guess.
+ */
+export function traceReady(
+  rubric: Pick<Rubric, 'requiresTrace'>,
+  coverage: 'full' | 'partial' | 'none' | null | undefined,
+): boolean {
+  return !rubric.requiresTrace || coverage === 'full';
+}
+
+/**
  * How to fold a rubric's per-chunk results, derived rather than asked.
  *
  * Splitting only happens on very long transcripts, and choosing the fold is an
