@@ -17,6 +17,7 @@ export const DEFAULT_RUBRICS: Rubric[] = [
     combine: 'last',
     weight: 3,
     enabled: true,
+    origin: 'library',
     trueMeans: 'The customer got what they came for, or a concrete next step that addresses it.',
     falseMeans: 'The conversation ended with the need unmet, deflected, or abandoned.',
   },
@@ -28,6 +29,7 @@ export const DEFAULT_RUBRICS: Rubric[] = [
     combine: 'mean',
     weight: 2,
     enabled: true,
+    origin: 'library',
     levels: [
       'Answered something the customer did not ask',
       'Partially relevant, or answered a broader version of the question',
@@ -42,6 +44,7 @@ export const DEFAULT_RUBRICS: Rubric[] = [
     combine: 'any',
     weight: 3,
     enabled: true,
+    origin: 'library',
     invert: true,
     trueMeans:
       'Went off-task, invented policy or product terms, discussed unrelated subjects, or acted outside its remit.',
@@ -56,6 +59,7 @@ export const DEFAULT_RUBRICS: Rubric[] = [
     combine: 'any',
     weight: 2,
     enabled: true,
+    origin: 'library',
     invert: true,
     trueMeans: 'Re-asked for a detail the customer had already stated.',
     falseMeans: 'Never asked twice for the same detail.',
@@ -69,6 +73,7 @@ export const DEFAULT_RUBRICS: Rubric[] = [
     combine: 'last',
     weight: 1,
     enabled: true,
+    origin: 'library',
     options: {
       not_needed: 'No handover happened and none was needed',
       right: 'Escalated at about the right point',
@@ -86,6 +91,7 @@ export const DEFAULT_RUBRICS: Rubric[] = [
     combine: 'mean',
     weight: 1,
     enabled: true,
+    origin: 'library',
     levels: [
       'Inappropriate — dismissive, robotic, or mismatched to the situation',
       'Acceptable but flat',
@@ -100,6 +106,7 @@ export const DEFAULT_RUBRICS: Rubric[] = [
     combine: 'mean',
     weight: 2,
     enabled: true,
+    origin: 'library',
     invert: true,
     levels: [
       'Calm throughout',
@@ -116,6 +123,7 @@ export const DEFAULT_RUBRICS: Rubric[] = [
     combine: 'last',
     weight: 1,
     enabled: true,
+    origin: 'library',
     trueMeans: 'Closed with a resolution, a next step, or a handover the customer accepted.',
     falseMeans: 'Cut off mid-task, or the agent ended it while the customer still needed something.',
   },

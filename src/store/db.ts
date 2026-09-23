@@ -125,6 +125,9 @@ CREATE TABLE IF NOT EXISTS validity (
 CREATE TABLE IF NOT EXISTS coverage (
   agent_id TEXT PRIMARY KEY, json TEXT NOT NULL, computed_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS meta (
+  key TEXT PRIMARY KEY, value TEXT NOT NULL
+);
 `;
 
 export class Store {
@@ -189,6 +192,46 @@ export class Store {
     if (this.rubrics().length > 0) return false;
     rubrics.forEach((rubric, index) => this.saveRubric(rubric, index));
     return true;
+  }
+
+  /**
+   * Adds shipped library rubrics this database has never been given.
+   *
+   * Each is added once. One the user deleted stays deleted, and one the user
+   * edited keeps their wording — a library rubric is a starting point, not
+   * something the tool reasserts on every start. Starter rubrics stored before
+   * `origin` existed are marked as library ones, which is what they are.
+   */
+  seedLibrary(library: Rubric[], shippedIds: Iterable<string>): string[] {
+    const seeded = new Set<string>(JSON.parse(this.getMeta('library_seeded') ?? '[]') as string[]);
+    const existing = new Map(this.rubrics().map((rubric) => [rubric.id, rubric]));
+    const shipped = new Set(shippedIds);
+    const added: string[] = [];
+
+    for (const [id, rubric] of existing) {
+      if (shipped.has(id) && !rubric.origin) this.saveRubric({ ...rubric, origin: 'library' });
+    }
+    let position = existing.size;
+    for (const rubric of library) {
+      if (seeded.has(rubric.id)) continue;
+      seeded.add(rubric.id);
+      if (existing.has(rubric.id)) continue;
+      this.saveRubric(rubric, position++);
+      added.push(rubric.id);
+    }
+    this.setMeta('library_seeded', JSON.stringify([...seeded]));
+    return added;
+  }
+
+  getMeta(key: string): string | undefined {
+    const row = this.#db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined;
+    return row?.value;
+  }
+
+  setMeta(key: string, value: string): void {
+    this.#db
+      .prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+      .run(key, value);
   }
 
   // ---- runs ----
