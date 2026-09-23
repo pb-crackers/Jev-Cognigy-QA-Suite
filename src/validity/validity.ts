@@ -71,14 +71,23 @@ export interface ValidityReport {
 }
 
 const LINT_QUESTIONS: Record<keyof Omit<LintAnswers, 'intent'>, string> = {
-  observable: 'Can this rubric be answered from a conversation transcript alone, without knowledge from outside it?',
+  observable: 'Can this rubric be answered from what the grader is given, without knowledge from outside it?',
   single: 'Does this rubric ask about exactly one thing, rather than combining several judgements into one answer?',
   clear: 'Would two careful reviewers reading the same conversation give this rubric the same answer?',
   separates: "Do this rubric's answer options separate the possible outcomes cleanly, without overlap or gaps?",
 };
 
+/**
+ * The rubric as the lint sees it — including what the grader will have in front
+ * of it. A trace rubric is answered with the agent's instructions and tool calls
+ * as well as the transcript, and judging it against the transcript alone would
+ * wrongly call it unanswerable.
+ */
 function describe(rubric: Rubric) {
   return {
+    grader_is_given: rubric.requiresTrace
+      ? "the conversation transcript, the agent's own instructions, its tool definitions, and every tool call it made"
+      : 'the conversation transcript',
     name: rubric.name,
     question: rubric.question,
     type: rubric.type,

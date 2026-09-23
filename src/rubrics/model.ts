@@ -103,6 +103,14 @@ export interface Rubric {
    * full trace coverage rather than answered from a guess.
    */
   requiresTrace?: boolean;
+
+  /**
+   * Checks the agent against all of its instructions at once, like "did it
+   * break any of its own instructions". Useful, but coverage must not count it
+   * as covering any single instruction — otherwise one catch-all makes every
+   * rule look watched.
+   */
+  general?: boolean;
 }
 
 /**
@@ -196,6 +204,9 @@ export function watchFieldProblems(rubric: Partial<Rubric>): string[] {
   }
   if (rubric.requiresTrace !== undefined && typeof rubric.requiresTrace !== 'boolean') {
     problems.push('requiresTrace must be true or false');
+  }
+  if (rubric.general !== undefined && typeof rubric.general !== 'boolean') {
+    problems.push('general must be true or false');
   }
   return problems;
 }

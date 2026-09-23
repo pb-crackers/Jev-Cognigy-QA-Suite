@@ -133,6 +133,7 @@ export function createApp(deps: Deps) {
               : undefined,
             intent: body.intent?.trim() || undefined,
             requiresTrace: body.requiresTrace === true || undefined,
+            general: body.general === true || undefined,
             // Derived from the rubric's own shape rather than asked for.
             combine: inferCombine(body as Rubric),
           } as Rubric;

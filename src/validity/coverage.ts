@@ -7,6 +7,11 @@
  * constraints; Jev answers one `choice` per constraint, whose options are the
  * agent's rubrics plus `none`. Every `none` is a gap.
  *
+ * A general rubric — "did it break any of its own instructions" — is left out
+ * of the choice. It does watch everything, but counting it would make every
+ * rule look specifically covered; the report says instead which gaps only the
+ * general rubric is watching.
+ *
  * Writing the rubric that would close a gap is generative work, and left to a
  * person or a coding agent. Finding the gap is not.
  */
@@ -56,8 +61,12 @@ export interface CoverageReport {
   /** When the instructions were read from — the newest logged call. */
   instructionsAt: string;
   constraints: { text: string; rubricId: string | null; confidence: number | null }[];
+  /** Instructions a specific rubric checks. */
   covered: number;
+  /** Instructions no specific rubric checks. */
   gaps: number;
+  /** General rubrics on for the agent, which do watch the gaps — just not specifically. */
+  general: string[];
 }
 
 export async function checkCoverage(
@@ -75,7 +84,8 @@ export async function checkCoverage(
   }
 
   const list = constraints(instructions);
-  const own = agentRubrics(agent, rubrics).filter((rubric) => rubric.id !== NONE);
+  const active = agentRubrics(agent, rubrics).filter((rubric) => rubric.id !== NONE);
+  const own = active.filter((rubric) => !rubric.general);
   const options: Record<string, string> = Object.fromEntries(own.map((rubric) => [rubric.id, rubric.question]));
   options[NONE] = 'No rubric checks whether the agent follows this instruction.';
 
@@ -107,6 +117,7 @@ export async function checkCoverage(
     constraints: results,
     covered: results.filter((item) => item.rubricId).length,
     gaps: results.filter((item) => !item.rubricId).length,
+    general: active.filter((rubric) => rubric.general).map((rubric) => rubric.id),
   };
   store.saveCoverage(agent.id, report, report.computedAt);
   return report;
