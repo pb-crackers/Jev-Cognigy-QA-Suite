@@ -360,7 +360,7 @@ function rubricTable(detail) {
   if (!detail.rubrics.length) return el('p', 'hint', 'No rubrics are switched on for this agent.');
   const table = el('table', 'agent-table rubric-health');
   const head = el('tr');
-  for (const [label, cls] of [['Rubric', ''], ['Passing', 'n'], ['Answered', 'n'], ['Weight', 'n'], ['Validity', 'n']]) head.append(el('th', cls, label));
+  for (const [label, cls] of [['Rubric', ''], ['Passing', 'n'], ['Sessions', 'n'], ['Validity', 'n']]) head.append(el('th', cls, label));
   const thead = el('thead');
   thead.append(head);
   const body = el('tbody');
@@ -379,11 +379,12 @@ function rubricTable(detail) {
       bars.append(document.createTextNode('█'.repeat(filled)));
       if (filled < 10) bars.append(el('span', 'off', '█'.repeat(10 - filled)));
       meter.append(bars, el('span', 'v', pct(rubric.passRate)));
+      meter.title = `passed ${rubric.passed} of ${rubric.answered} sessions`;
       passing.append(meter);
     }
     const validity = el('td', 'n', rubric.verified ? rubric.validity.toFixed(2) : 'unchecked');
     if (!rubric.verified) validity.classList.add('muted');
-    tr.append(name, passing, el('td', 'n', String(rubric.answered)), el('td', 'n', String(rubric.weight)), validity);
+    tr.append(name, passing, el('td', 'n', String(rubric.answered)), validity);
     body.append(tr);
   }
   table.append(thead, body);

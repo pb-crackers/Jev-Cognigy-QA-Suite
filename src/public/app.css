@@ -797,9 +797,8 @@ details.folded > summary:focus-visible { outline: 2px solid var(--t-noul); outli
 #view-agent, #view-fleet, #view-alerts, .agent-section { min-width: 0; max-width: 100%; }
 .agent-section { overflow-x: auto; }
 @media (max-width: 860px) {
-  /* Answered and Weight are the least load-bearing; pass rate and validity stay. */
-  .rubric-health th:nth-child(3), .rubric-health td:nth-child(3),
-  .rubric-health th:nth-child(4), .rubric-health td:nth-child(4) { display: none; }
+  /* The session count is the least load-bearing; pass rate and validity stay. */
+  .rubric-health th:nth-child(3), .rubric-health td:nth-child(3) { display: none; }
   .rubric-health .bars { font-size: 9px; }
   .agent-head { flex-direction: column; align-items: flex-start; }
   .agent-top { gap: 12px; flex-wrap: wrap; }

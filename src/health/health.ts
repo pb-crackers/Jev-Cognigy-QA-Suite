@@ -27,6 +27,9 @@ export const MIN_SAMPLE = 30;
 /** A session scoring below this share of the ideal is listed as failing. */
 export const FAILING_BELOW = 0.6;
 
+/** A rubric passes on a session when its value, after polarity, reaches this. Interim, until each rubric says what a pass is. */
+export const PASS_AT = 0.5;
+
 export interface RubricHealth {
   rubricId: string;
   name: string;
@@ -35,7 +38,9 @@ export interface RubricHealth {
   validity: number;
   verified: boolean;
   answered: number;
-  /** Mean contribution across the window, 0–1, after polarity. */
+  /** Sessions where the rubric passed: its value, after polarity, is at least 0.5. */
+  passed: number;
+  /** passed ÷ answered — a count, so "91%" means 20 of 22 sessions, not an average score. */
   passRate: number | null;
 }
 
@@ -120,10 +125,11 @@ export function computeHealth(
 
   const rubricHealth: RubricHealth[] = [...effective.values()].map(({ rubric, validity: v, verified }) => {
     const values = composites.map((item) => item.values.get(rubric.id)).filter((value): value is number => value !== undefined);
+    const passed = values.filter((value) => value >= PASS_AT).length;
     return {
       rubricId: rubric.id, name: rubric.name, kind: rubric.kind ?? 'quality', weight: rubric.weight,
-      validity: v, verified, answered: values.length,
-      passRate: values.length ? values.reduce((a, b) => a + b, 0) / values.length : null,
+      validity: v, verified, answered: values.length, passed,
+      passRate: values.length ? passed / values.length : null,
     };
   });
 
