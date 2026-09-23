@@ -62,6 +62,20 @@ export interface AgentState {
   lastError: string | null;
 }
 
+export interface AlertRow {
+  id: number;
+  agentId: string;
+  rubricId: string;
+  /** The window the alert belongs to, keyed on conversation time: `day:2026-09-22`. */
+  windowKey: string;
+  happenedAt: string;
+  detectedAt: string;
+  count: number;
+  sessions: string[];
+  /** What happened to each delivery: `ok`, `off`, or the error. */
+  delivered: Record<string, string>;
+}
+
 export interface ResultRow {
   runId: string;
   sessionId: string;
@@ -467,6 +481,56 @@ export class Store {
     };
   }
 
+  // ---- alerts ----
+
+  alertFor(agentId: string, rubricId: string, windowKey: string): AlertRow | undefined {
+    const row = this.#db
+      .prepare('SELECT * FROM alert WHERE agent_id = ? AND rubric_id = ? AND window_key = ?')
+      .get(agentId, rubricId, windowKey) as Record<string, never> | undefined;
+    return row ? alertRow(row) : undefined;
+  }
+
+  insertAlert(alert: Omit<AlertRow, 'id'>): AlertRow {
+    const result = this.#db
+      .prepare(
+        `INSERT INTO alert (agent_id, rubric_id, window_key, happened_at, detected_at, count, sessions, delivered)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        alert.agentId, alert.rubricId, alert.windowKey, alert.happenedAt, alert.detectedAt,
+        alert.count, JSON.stringify(alert.sessions), JSON.stringify(alert.delivered),
+      );
+    return { ...alert, id: Number(result.lastInsertRowid) };
+  }
+
+  updateAlert(id: number, change: { count?: number; sessions?: string[]; delivered?: Record<string, string> }): void {
+    const current = this.#db.prepare('SELECT * FROM alert WHERE id = ?').get(id) as Record<string, never> | undefined;
+    if (!current) return;
+    const row = alertRow(current);
+    this.#db
+      .prepare('UPDATE alert SET count = ?, sessions = ?, delivered = ? WHERE id = ?')
+      .run(
+        change.count ?? row.count,
+        JSON.stringify(change.sessions ?? row.sessions),
+        JSON.stringify(change.delivered ?? row.delivered),
+        id,
+      );
+  }
+
+  alerts(filter: { agentId?: string; since?: string; limit?: number } = {}): AlertRow[] {
+    const clauses: string[] = [];
+    const args: string[] = [];
+    if (filter.agentId) { clauses.push('agent_id = ?'); args.push(filter.agentId); }
+    if (filter.since) { clauses.push('happened_at >= ?'); args.push(filter.since); }
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM alert ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}
+         ORDER BY happened_at DESC LIMIT ${Math.max(1, Math.min(filter.limit ?? 200, 1000))}`,
+      )
+      .all(...args) as Record<string, never>[];
+    return rows.map(alertRow);
+  }
+
   // ---- agents ----
 
   agents(): Agent[] {
@@ -518,4 +582,12 @@ export class Store {
       )
       .run(state.agentId, state.watermark, state.lastCollectedAt, state.lastError);
   }
+}
+
+function alertRow(row: Record<string, never>): AlertRow {
+  return {
+    id: row.id, agentId: row.agent_id, rubricId: row.rubric_id, windowKey: row.window_key,
+    happenedAt: row.happened_at, detectedAt: row.detected_at, count: row.count,
+    sessions: JSON.parse(row.sessions) as string[], delivered: JSON.parse(row.delivered) as Record<string, string>,
+  };
 }
