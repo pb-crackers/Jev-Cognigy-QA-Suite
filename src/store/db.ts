@@ -280,6 +280,21 @@ export class Store {
    * something the tool reasserts on every start. Starter rubrics stored before
    * `origin` existed are marked as library ones, which is what they are.
    */
+  /**
+   * Gives stored copies of shipped rubrics a field added to them later, where
+   * the copy has never had it. A value someone chose — even the default — is
+   * left alone.
+   */
+  fillShippedFields(shipped: Rubric[], fields: (keyof Rubric)[]): void {
+    const stored = new Map(this.rubrics().map((rubric) => [rubric.id, rubric]));
+    for (const definition of shipped) {
+      const copy = stored.get(definition.id);
+      if (!copy || copy.origin !== 'library') continue;
+      const missing = fields.filter((field) => copy[field] === undefined && definition[field] !== undefined);
+      if (missing.length) this.saveRubric({ ...copy, ...Object.fromEntries(missing.map((field) => [field, definition[field]])) });
+    }
+  }
+
   seedLibrary(library: Rubric[], shippedIds: Iterable<string>): string[] {
     const seeded = new Set<string>(JSON.parse(this.getMeta('library_seeded') ?? '[]') as string[]);
     const existing = new Map(this.rubrics().map((rubric) => [rubric.id, rubric]));

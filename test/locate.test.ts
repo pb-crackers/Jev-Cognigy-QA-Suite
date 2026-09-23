@@ -49,7 +49,18 @@ describe('which message a verdict rests on', () => {
     assert.deepEqual(Object.keys(request.questions.which_quoted_rate.criteria as object), ['message_1', 'message_2', 'none']);
     assert.match(JSON.stringify(request.questions), /was yes\. Which agent message/);
     assert.match(String((request.state as { conversation: string }).conversation), /Agent message 2: A 30-year fixed/);
-    assert.deepEqual(found, { raw: '0.86', turnIndex: 4, message: 2, probability: 0.94, runnerUp: 0.03 });
+    assert.deepEqual(found, { raw: '0.86', turnIndex: 4, message: 2, probability: 0.94, runnerUp: 0.03, about: 'agent' });
+  });
+
+  it("points a rubric about the customer at the customer's messages", async () => {
+    const frustration: Rubric = { ...rate, id: 'frustration', name: 'Customer frustration', question: 'How frustrated did the customer become?',
+      type: 'score', levels: ['calm', 'irritated', 'clearly frustrated'], about: 'customer' };
+    api.setOverrides({ which_frustration: { type: 'choice', choice: 'message_2', confidence: 1, probabilities: { message_1: 0, message_2: 1, none: 0 } } });
+    const found = await locate(frustration, '2', turns, {}, new Ledger(), 's1');
+    const question = api.requests.at(-1)!.questions.which_frustration;
+    assert.match(JSON.stringify(question), /Which customer message is the main reason/);
+    assert.match(JSON.stringify(question.criteria), /Customer message 2: \\"Just tell me/);
+    assert.deepEqual([found.about, found.message, found.turnIndex], ['customer', 2, 2], 'the second customer message is turn 2');
   });
 
   it('says so when no single message decides it', async () => {

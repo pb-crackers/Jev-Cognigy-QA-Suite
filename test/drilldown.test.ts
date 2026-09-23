@@ -74,6 +74,18 @@ describe("one rubric's sessions", () => {
     store.close();
   });
 
+  it("quotes the customer's message for a rubric about the customer", () => {
+    const { store, agent, session } = setup();
+    const frustration: Rubric = { id: 'frustration', name: 'Customer frustration', question: 'How frustrated?', type: 'boolean', combine: 'any',
+      weight: 1, enabled: true, invert: true, origin: 'library', about: 'customer' };
+    const transcript = [{ role: 'user', text: 'Pay now.' }, { role: 'agent', text: 'Use the portal.' }, { role: 'user', text: 'Why can’t you just take it?' }];
+    const id = session('2026-09-23T09:00:00Z', { frustration: '0.9' }, { transcript });
+    store.saveLocate(agent.id, id, 'frustration', { raw: '0.9', key: locateKey(frustration, '0.9', transcript as never), turnIndex: 2, message: 2, probability: 1, about: 'customer' });
+    const [row] = rubricSessions(agent, frustration, store, '24h', 'all', NOW).sessions;
+    assert.equal(row.located?.quote, 'Why can’t you just take it?');
+    store.close();
+  });
+
   it('says when a rubric reports answers without pass or fail', () => {
     const { store, agent, session } = setup();
     const topic: Rubric = { id: 'topic', name: 'Topic', question: 'What was it about?', type: 'choice', combine: 'last', weight: 0, enabled: true,

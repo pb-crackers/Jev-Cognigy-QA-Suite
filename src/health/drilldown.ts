@@ -108,8 +108,9 @@ export function rubricSessions(
     const turns = JSON.parse(transcript) as { role: string; text: string; tool?: string }[];
     const stored = located.get(session.sessionId);
     const pointer = stored?.key === locateKey(rubric, raw, turns.filter((turn) => !turn.tool) as never) ? stored : undefined;
-    // Agent messages are numbered the same with or without tool lines, so the quote is found by number.
-    const agentTurns = pointer && pointer.turnIndex !== null ? turns.filter((turn) => turn.role === 'agent') : undefined;
+    // Messages are numbered per speaker, the same with or without tool lines, so the quote is found by number.
+    const speaker = pointer?.about === 'customer' ? 'user' : 'agent';
+    const spoken = pointer && pointer.turnIndex !== null ? turns.filter((turn) => turn.role === speaker) : undefined;
     items.push({
       sessionId: session.sessionId,
       startedAt: session.startedAt,
@@ -117,7 +118,7 @@ export function rubricSessions(
       answer: verdictText(rubric, raw),
       passed: passes(result),
       certainty: certaintyOf(rubric, result),
-      ...(pointer ? { located: { ...pointer, ...(agentTurns ? { quote: agentTurns[pointer.message! - 1]?.text } : {}) } } : {}),
+      ...(pointer ? { located: { ...pointer, ...(spoken ? { quote: spoken[pointer.message! - 1]?.text } : {}) } } : {}),
     });
   }
   // Failures first, then newest: the order you'd read them in.

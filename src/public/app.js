@@ -559,6 +559,7 @@ function editRubric(rubric) {
   $('r-intent').value = rubric?.intent ?? '';
   $('r-trace').checked = Boolean(rubric?.requiresTrace);
   $('r-general').checked = Boolean(rubric?.general);
+  $('r-about').value = rubric?.about === 'customer' ? 'customer' : 'agent';
   $('alert-rule').hidden = $('r-kind').value !== 'alert';
   $('r-true').value = rubric?.trueMeans ?? '';
   $('r-false').value = rubric?.falseMeans ?? '';
@@ -709,6 +710,7 @@ $('rubric-form').addEventListener('submit', async (event) => {
     intent: $('r-intent').value.trim() || undefined,
     requiresTrace: $('r-trace').checked || undefined,
     general: $('r-general').checked || undefined,
+    about: $('r-about').value,
     appliesTo: $('r-applies').value || undefined,
     notes: {
       voice: $('r-note-voice').value.trim() || undefined,
@@ -1251,13 +1253,13 @@ function factRow(list, term, value, label) {
   return note;
 }
 
-/** The Nth agent message in the transcript as shown, counting from 1. */
-function agentRow(message) {
-  return [...document.querySelectorAll('#session-transcript .turn.agent')][message - 1];
+/** The Nth message from the agent, or from the customer, in the transcript as shown, counting from 1. */
+function messageRow(message, about) {
+  return [...document.querySelectorAll(`#session-transcript .turn.${about === 'customer' ? 'user' : 'agent'}`)][message - 1];
 }
 
-function markMessage(message, rubric, probability, passed) {
-  const row = agentRow(message);
+function markMessage(message, about, rubric, probability, passed) {
+  const row = messageRow(message, about);
   if (!row) return undefined;
   row.classList.add('pointed');
   if (passed) row.classList.add('pass');
@@ -1297,9 +1299,9 @@ function pinnedRubric(session, rubric) {
       where.append(located.reason ?? 'no single message decides this one');
       return;
     }
-    whereValue.textContent = `#${located.message}`;
+    whereValue.textContent = located.about === 'customer' ? `customer #${located.message}` : `#${located.message}`;
     if (located.probability !== null) where.append(`probability ${located.probability.toFixed(2)} `);
-    const row = markMessage(located.message, rubric, located.probability, passed === true);
+    const row = markMessage(located.message, located.about, rubric, located.probability, passed === true);
     if (row) {
       const jump = el('button', 'jump', 'Go to it');
       jump.type = 'button';

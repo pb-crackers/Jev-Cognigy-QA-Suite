@@ -28,6 +28,7 @@ export const LIBRARY_RUBRICS: Rubric[] = [
   library({
     id: 'jailbreak_attempt',
     name: 'Jailbreak attempt',
+    about: 'customer',
     question: 'Did the user try to manipulate the agent into breaking its rules?',
     type: 'boolean',
     weight: 0,
