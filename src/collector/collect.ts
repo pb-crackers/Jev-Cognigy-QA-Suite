@@ -67,12 +67,11 @@ export interface CollectReport {
  */
 export function backfillToolCalls(agentId: string, store: Store): number {
   let rebuilt = 0;
-  for (const session of store.agentSessions(agentId)) {
-    if (session.checks || session.error) continue;
+  for (const session of store.sessionsWithoutChecks(agentId)) {
     const traces = store.tracesFor(agentId, session.sessionId);
     const trace = traces.length ? reconstruct(traces) : undefined;
     if (trace) {
-      checkToolCalls(trace.toolCalls, trace.tools);
+      checkToolCalls(trace.toolCalls, trace.tools, trace.lastCallAt);
       store.saveToolCalls(agentId, session.sessionId, trace.toolCalls);
     }
     // Older transcripts carry tool lines of their own; the checks read the conversation alone.

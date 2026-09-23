@@ -272,10 +272,11 @@ export async function handleWatchRoute(
         if (!sessionId) return send(400, { error: 'Say which session to score: { "sessionId": "…" }' }), true;
         const rubrics = store.rubrics();
         const now = new Date().toISOString();
-        const outcome = await executeRun(
+        const retry = () => executeRun(
           { ...agentRunRequest(agent, rubrics, { from: now, to: now, limit: 1 }), retrySessionIds: [sessionId] },
           { odata: deps.odata, store, rubrics },
         );
+        const outcome = deps.scheduler ? await deps.scheduler.exclusive(retry) : await retry();
         return send(200, { scored: outcome.scored.length, failed: outcome.failed }), true;
       }
       if (action === 'coverage' && method === 'POST') {
@@ -292,9 +293,13 @@ export async function handleWatchRoute(
     const session = path.match(/^\/api\/sessions\/([\w-]+)$/);
     if (session && method === 'GET') {
       const agentId = url.searchParams.get('agentId');
-      const rows = agentId ? store.agentSessions(agentId).filter((row) => row.sessionId === session[1]) : [];
-      const row = rows[0];
-      if (!row) return send(404, { error: 'No such session for this agent' }), true;
+      const rows = agentId ? store.sessionRows(agentId, session[1]) : [];
+      const newest = rows[0];
+      if (!newest) return send(404, { error: 'No such session for this agent' }), true;
+      // A failed attempt may not have got as far as reading the conversation; the
+      // last one that did still shows it.
+      const read = rows.find((candidate) => candidate.transcript !== '[]') ?? newest;
+      const row = { ...newest, transcript: read.transcript, turns: read.turns };
       const rubrics = store.rubrics();
       const [scored] = scoreSessions([row], store.latestResults([row.sessionId]), rubrics);
       const toolCalls = store.toolCallsFor(agentId!, row.sessionId);

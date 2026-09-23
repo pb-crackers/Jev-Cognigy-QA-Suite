@@ -196,8 +196,39 @@ describe('one session failing', () => {
     state.broken = false;
     const third = await executeRun({ ...request, from: 'later', retrySessionIds: ['sess-bad'] }, { odata, store, rubrics });
     assert.ok(third.scored.some((session) => session.sessionId === 'sess-bad'), 'scored once it can be');
+    assert.deepEqual(third.found.map((session) => session.sessionId), ['sess-ok'], 'a retry is not counted as discovered');
     assert.deepEqual(store.failedSessions(agent.id), []);
     assert.ok(asked.some((options) => options.sessionIds?.includes('sess-bad')), 'fetched by id, whenever it happened');
+    store.close();
+  });
+});
+
+describe('retrying after a failure', () => {
+  it('clears a failure even when an earlier run already answered everything', async () => {
+    const store = new Store(':memory:');
+    const agent = createAgent({ name: 'Home Loans', projectId: 'p1', endpoints: [{ id: 'e', name: 'REST' }],
+      rubrics: { helped: true } }, store, rubrics);
+    // An ad-hoc run answers the rubric; the agent's own first pass then fails reading the conversation.
+    await executeRun({ projectId: 'p1', projectName: 'P', from: 'a', to: 'b', limit: 5, skipScored: false }, { odata: odataFor(), store, rubrics: [rubrics[0]] });
+    const request = { projectId: 'p1', projectName: 'P', from: 'a', to: 'b', limit: 5, skipScored: true, skipMode: 'rubric' as const, agentId: agent.id, rubricIds: ['helped'] };
+    const broken = { ...odataFor(), async conversation() { throw new Error('Cognigy answered 502'); } };
+    await executeRun(request, { odata: broken as never, store, rubrics });
+    assert.equal(store.failedSessions(agent.id).length, 1);
+
+    // Nothing is left to ask, but the retry must still be processed: that's what clears the failure.
+    await executeRun({ ...request, retrySessionIds: ['sess-1'] }, { odata: odataFor(), store, rubrics });
+    assert.deepEqual(store.failedSessions(agent.id), []);
+    store.close();
+  });
+
+  it('lets an ad-hoc run try a session again after it failed', async () => {
+    const store = new Store(':memory:');
+    const request = { projectId: 'p1', projectName: 'P', from: 'a', to: 'b', limit: 5, skipScored: true };
+    const broken = { ...odataFor(), async conversation() { throw new Error('Cognigy answered 502'); } };
+    const first = await executeRun(request, { odata: broken as never, store, rubrics: [rubrics[0]] });
+    assert.equal(first.failed.length, 1);
+    const second = await executeRun(request, { odata: odataFor(), store, rubrics: [rubrics[0]] });
+    assert.deepEqual(second.scored.map((session) => session.sessionId), ['sess-1']);
     store.close();
   });
 });
@@ -217,6 +248,21 @@ describe('placing tool lines', () => {
     const trace = { ...reconstruct([]), toolCalls: [call({ inputId: 'in-1', preamble: 'Let me   check that **for you**.', result: '{"ok":true}' })] };
     const out = withToolLines([turn('user', 'q', 'in-1'), turn('agent', 'Let me check that for you.', 'in-1'), turn('agent', 'All done.', 'in-1')], trace);
     assert.deepEqual(out.map((line) => line.text), ['q', 'Let me check that for you.', '[tool call lookup {}]', '[tool result lookup: {"ok":true}]', 'All done.']);
+  });
+
+  it('puts each round after the text that introduced it when an input has two', () => {
+    const trace = { ...reconstruct([]), toolCalls: [
+      call({ seq: 1, callId: 'a', name: 'first', inputId: 'in-1', round: 0, preamble: 'Let me look that up.' }),
+      call({ seq: 2, callId: 'b', name: 'second', inputId: 'in-1', round: 1, preamble: 'One more check.' }),
+    ] };
+    const out = withToolLines([turn('user', 'q', 'in-1'), turn('agent', 'Let me look that up.', 'in-1'), turn('agent', 'One more check.', 'in-1'), turn('agent', 'Done.', 'in-1')], trace);
+    assert.deepEqual(out.map((line) => line.text), ['q', 'Let me look that up.', '[tool call first {}]', 'One more check.', '[tool call second {}]', 'Done.']);
+  });
+
+  it('recognises text said before a call in any script', () => {
+    const trace = { ...reconstruct([]), toolCalls: [call({ inputId: 'in-1', preamble: 'Позвольте проверить.' })] };
+    const out = withToolLines([turn('user', 'q', 'in-1'), turn('agent', 'Позвольте проверить.', 'in-1'), turn('agent', 'Готово.', 'in-1')], trace);
+    assert.deepEqual(out.map((line) => line.text), ['q', 'Позвольте проверить.', '[tool call lookup {}]', 'Готово.']);
   });
 
   it('trims a long tool result with a visible marker', () => {

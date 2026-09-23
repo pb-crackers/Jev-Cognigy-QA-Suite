@@ -92,6 +92,39 @@ describe('unwrapping', () => {
   });
 });
 
+describe('storing each call once', () => {
+  it('dedupes a delivery that came without a timestamp, and keeps distinct calls that did', async () => {
+    const { store, agent } = withAgent();
+    const calls = fixture('trace-session.json').map((call: { meta: Record<string, unknown> }) => ({ ...call, meta: { ...call.meta, timestamp: undefined } }));
+    // Each import stamps the arrival time; that must not make a retry look new, or merge the turn's two calls.
+    assert.deepEqual(importTraces(store, agent.id, calls), { imported: 3, duplicates: 0, skipped: 0 });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.deepEqual(importTraces(store, agent.id, calls), { imported: 0, duplicates: 3, skipped: 0 });
+    store.close();
+  });
+
+  it('keys calls stored under an older scheme afresh, dropping only true duplicates', async () => {
+    const { DatabaseSync } = await import('node:sqlite');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const file = join(tmpdir(), `agent-watch-migrate-${process.pid}-${Date.now()}.db`);
+    const first = new Store(file);
+    const agent = createAgent({ name: 'Home Loans', projectId: 'p1', endpoints: [{ id: 'e', name: 'REST' }] }, first, []);
+    importTraces(first, agent.id, fixture('trace-session.json'));
+    first.close();
+    // As an older version left it: its own keys, the same call stored twice, and no record of the key scheme.
+    const raw = new DatabaseSync(file);
+    raw.exec("DROP INDEX trace_once; UPDATE trace SET trace_id = 'old-' || id; DELETE FROM meta WHERE key = 'trace_key'");
+    raw.exec('INSERT INTO trace (agent_id, session_id, input_id, event_at, received_at, json, trace_id) SELECT agent_id, session_id, input_id, event_at, received_at, json, trace_id || \'-copy\' FROM trace WHERE id = 1');
+    raw.close();
+
+    const again = new Store(file);
+    assert.equal(again.traceSummary(agent.id).traces, 3, 'the copy is gone, the three distinct calls stay');
+    assert.equal(importTraces(again, agent.id, fixture('trace-session.json')).duplicates, 3, 'and new deliveries match the new keys');
+    again.close();
+  });
+});
+
 describe('reconstruction', () => {
   function sessionTraces() {
     const { store, agent } = withAgent();

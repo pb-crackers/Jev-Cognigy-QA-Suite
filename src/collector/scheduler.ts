@@ -94,10 +94,20 @@ export class Scheduler {
 
   /** "Collect now" from the UI or CLI; waits for a tick already in progress rather than overlapping it. */
   async collectNow(agentId: string): Promise<CollectReport> {
+    return this.exclusive(() => this.#run(agentId, new Date()));
+  }
+
+  /**
+   * Runs work that scores sessions — a manual retry, say — once no collection is
+   * in progress, and keeps collections off until it is done. Two runs scoring
+   * the same session at once would pay twice and could leave a stale failure
+   * as its newest record.
+   */
+  async exclusive<T>(work: () => Promise<T>): Promise<T> {
     while (this.#busy) await new Promise((resolve) => setTimeout(resolve, 200));
     this.#busy = true;
     try {
-      return await this.#run(agentId, new Date());
+      return await work();
     } finally {
       this.#busy = false;
     }

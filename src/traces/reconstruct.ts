@@ -36,6 +36,8 @@ export interface CheckResult {
 export interface ToolCallRecord {
   /** Position among the session's tool calls, from 1. */
   seq: number;
+  /** Which LLM response made the call, in session order. Calls made together share one. */
+  round?: number;
   callId: string;
   /** The user input whose reply this call was made for. */
   inputId?: string;
@@ -83,6 +85,8 @@ export interface SessionTrace {
   tokens: { input: number; output: number };
   /** Anything in a payload shaped other than expected, with the call it came from. */
   drift: (DriftWarning & { at: string; traceId?: string })[];
+  /** When the session's last logged LLM call was made; a tool result can only be seen in a call after its own. */
+  lastCallAt?: string;
 }
 
 function parseJson(text: string): unknown {
@@ -109,8 +113,9 @@ export function reconstruct(traces: StoredTrace[]): SessionTrace {
 
   const records = new Map<string, ToolCallRecord>();
   const record = (tc: NormalisedToolCall, fallbackInput: string | undefined): ToolCallRecord => {
-    // A call without an id — not seen from Cognigy, but possible — is known by what it did.
-    const key = tc.id || `${tc.name}\u0000${tc.argsRaw}\u0000${records.size}`;
+    // A call without an id — not seen from Cognigy, but possible — is known by
+    // what it did, so its reappearance in later histories finds the same record.
+    const key = tc.id || `${tc.name}\u0000${tc.argsRaw}`;
     let found = records.get(key);
     if (!found) {
       found = { seq: records.size + 1, callId: tc.id, inputId: fallbackInput, name: tc.name, args: tc.args, argsRaw: tc.argsRaw, checks: [] };
@@ -119,8 +124,9 @@ export function reconstruct(traces: StoredTrace[]): SessionTrace {
     return found;
   };
 
-  for (const call of calls) {
+  for (const [round, call] of calls.entries()) {
     if (call.inputId) out.inputIds.add(call.inputId);
+    out.lastCallAt = call.at || out.lastCallAt;
     if (call.systemPrompt) out.instructions = call.systemPrompt;
     if (call.tools.length) out.tools = call.tools;
     out.model = call.model ?? out.model;
@@ -146,6 +152,7 @@ export function reconstruct(traces: StoredTrace[]): SessionTrace {
     for (const tc of call.toolCalls) {
       const found = record(tc, call.inputId);
       found.inputId = call.inputId ?? found.inputId;
+      found.round = round;
       found.calledAt = call.at;
       found.args = tc.args;
       found.definition = call.tools.find((tool) => tool.name === tc.name);

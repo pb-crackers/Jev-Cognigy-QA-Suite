@@ -766,9 +766,7 @@ function composite(session) {
   let weighted = 0;
   let total = 0;
   let counted = 0;
-  // A session from an agent lists that agent's rubrics; an ad-hoc run's, every rubric.
-  const listed = session.rubricIds ? state.rubrics.filter((rubric) => session.rubricIds.includes(rubric.id) || session.results[rubric.id]) : state.rubrics;
-  for (const rubric of listed) {
+  for (const rubric of state.rubrics) {
     const result = session.results[rubric.id];
     if (!result || result.normalized === undefined || result.normalized === null) continue;
     const weight = state.weights.get(rubric.id) ?? rubric.weight;
@@ -927,7 +925,15 @@ function renderTable() {
       tr.append(review);
     }
 
-    tr.addEventListener('click', () => openSession(session));
+    tr.addEventListener('click', async () => {
+      // An agent's session has its tool calls in their own records; fetch them with it.
+      if (!state.run?.agentId) return openSession(session);
+      try {
+        openSession(await json(`/api/sessions/${encodeURIComponent(session.sessionId)}?agentId=${encodeURIComponent(state.run.agentId)}`));
+      } catch {
+        openSession(session);
+      }
+    });
     body.append(tr);
   }
 
@@ -1275,11 +1281,17 @@ function openSession(session) {
   panel.replaceChildren();
   if (session.error || session.unscoreable) {
     panel.append(notScored(session));
-    openSessionDrawer();
-    return;
+    // A failed re-score leaves the earlier answers standing; health still counts them, so they show.
+    if (session.unscoreable || Object.keys(session.results).length === 0) {
+      openSessionDrawer();
+      return;
+    }
+    panel.append(el('p', 'hint', 'Scores from an earlier attempt:'));
   }
 
-  for (const rubric of state.rubrics) {
+  // A session from an agent lists that agent's rubrics; an ad-hoc run's, every rubric.
+  const listed = session.rubricIds ? state.rubrics.filter((rubric) => session.rubricIds.includes(rubric.id) || session.results[rubric.id]) : state.rubrics;
+  for (const rubric of listed) {
     const result = session.results[rubric.id];
 
     // Two different silences, and conflating them hides a real problem. A rubric
