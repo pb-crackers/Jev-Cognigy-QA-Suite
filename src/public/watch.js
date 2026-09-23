@@ -8,7 +8,9 @@
  */
 import { $, el, json, usd } from './dom.js';
 
-const watch = { window: '24h', agents: [], rubrics: [], projects: [], current: null, live: null };
+const watch = { window: '24h', agents: [], rubrics: [], projects: [], current: null, live: null,
+  // The last filter chosen in each list, so coming back to it shows the same view.
+  show: { sessions: 'all', rubric: 'failed' } };
 
 const pct = (value) => `${Math.round(value * 100)}%`;
 /** Cognigy's UUIDs read fine at eight characters; an id someone chose is kept whole. */
@@ -305,8 +307,10 @@ function renderAgent() {
   if (state.lastError) notice('agent-notice', `The last collection failed: ${state.lastError}`);
 
   if (detail.trend.length > 1) page.append(section('Health by day', trendChart(detail.trend)));
-  page.append(section('Rubrics', rubricTable(detail), 'weight × validity is what each rubric counts for'));
-  page.append(section('Failing sessions', failingList(detail), detail.failing.length ? 'worst first' : undefined));
+  page.append(section('Rubrics', rubricTable(detail), 'open one to see its sessions'));
+  const sessions = el('div');
+  page.append(section('Sessions', sessions, `last ${watch.window === '24h' ? '24 hours' : watch.window === '7d' ? '7 days' : '30 days'}, newest first`));
+  void renderSessionList(sessions, agent.id);
   page.append(section('Alerts', alertTable(alerts, false)));
   page.append(section('Coverage', coveragePanel(agent, coverage), 'instructions no rubric specifically checks'));
   page.append(watch.current.data.problems
@@ -360,13 +364,18 @@ function rubricTable(detail) {
   if (!detail.rubrics.length) return el('p', 'hint', 'No rubrics are switched on for this agent.');
   const table = el('table', 'agent-table rubric-health');
   const head = el('tr');
-  for (const [label, cls] of [['Rubric', ''], ['Passing', 'n'], ['Sessions', 'n'], ['Validity', 'n']]) head.append(el('th', cls, label));
+  for (const [label, cls] of [['Rubric', ''], ['Passing', 'n'], ['Sessions', 'n'], ['Validity', 'n'], ['', '']]) head.append(el('th', cls, label));
   const thead = el('thead');
   thead.append(head);
   const body = el('tbody');
   const ordered = [...detail.rubrics].sort((a, b) => (a.passRate ?? 2) - (b.passRate ?? 2));
   for (const rubric of ordered) {
-    const tr = el('tr');
+    const tr = el('tr', 'open');
+    tr.tabIndex = 0;
+    tr.addEventListener('click', () => void openRubric(watch.current.agent.id, rubric.rubricId));
+    tr.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') void openRubric(watch.current.agent.id, rubric.rubricId);
+    });
     const name = el('td');
     name.append(el('span', 'rname-cell', rubric.name));
     if (rubric.kind === 'alert') name.append(el('span', 'badge alert', 'alert'));
@@ -384,37 +393,155 @@ function rubricTable(detail) {
     }
     const validity = el('td', 'n', rubric.verified ? rubric.validity.toFixed(2) : 'unchecked');
     if (!rubric.verified) validity.classList.add('muted');
-    tr.append(name, passing, el('td', 'n', String(rubric.answered)), validity);
+    tr.append(name, passing, el('td', 'n', String(rubric.answered)), validity, el('td', 'go', '›'));
     body.append(tr);
   }
   table.append(thead, body);
   return table;
 }
 
-function failingList(detail) {
-  if (!detail.failing.length) return el('p', 'hint', 'No session in this window scored below 60% of the ideal.');
-  const names = new Map(watch.rubrics.map((rubric) => [rubric.id, rubric.name]));
-  const list = el('div', 'failing');
-  for (const item of detail.failing) {
-    const row = el('button', 'failing-row');
+const SESSION_FILTERS = [['all', 'All'], ['rubric_failed', 'A rubric failed'], ['call_failed', 'A tool call failed'], ['not_scored', 'Not scored']];
+const VERDICT_FILTERS = [['failed', 'Failed'], ['passed', 'Passed'], ['all', 'All']];
+const when = (iso) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+/** A segmented filter whose buttons carry their counts. */
+function filterBar(options, counts, current, onPick) {
+  const bar = el('div', 'seg');
+  bar.setAttribute('role', 'group');
+  bar.setAttribute('aria-label', 'Show');
+  for (const [key, label] of options) {
+    const button = el('button', null, label);
+    button.type = 'button';
+    button.append(el('span', 'n', String(counts[key] ?? 0)));
+    button.setAttribute('aria-pressed', String(key === current));
+    button.addEventListener('click', () => onPick(key));
+    bar.append(button);
+  }
+  return bar;
+}
+
+/** Every session the agent has in the window, filterable; each opens in the drawer. */
+async function renderSessionList(box, agentId) {
+  let data;
+  try {
+    data = await json(`/api/agents/${encodeURIComponent(agentId)}/sessions?window=${watch.window}&show=${watch.show.sessions}`);
+  } catch (error) {
+    box.replaceChildren(el('p', 'flagc', `Could not load sessions: ${error.message}`));
+    return;
+  }
+  const bar = filterBar(SESSION_FILTERS, data.counts, watch.show.sessions, (key) => {
+    watch.show.sessions = key;
+    void renderSessionList(box, agentId);
+  });
+  const list = el('div', 'session-list');
+  if (data.sessions.length === 0) list.append(el('p', 'hint', data.counts.all ? 'No session in this window matches.' : 'No session collected in this window yet.'));
+  for (const item of data.sessions) {
+    const row = el('button', 'srow');
     row.type = 'button';
-    row.append(
-      el('span', 'sid', shortId(item.sessionId)),
-      el('span', 'when', new Date(item.startedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })),
-      el('span', `score ${band(item.composite).cls}`, pct(item.composite)),
-      el('span', 'hint', item.worst.slice(0, 3).map((id) => names.get(id) ?? id).join(', ') || '—'),
-    );
+    const score = item.score === undefined ? el('span', 'verdict muted', item.error || item.unscoreable ? 'not scored' : '—')
+      : el('span', `verdict ${band(item.score).cls}`, pct(item.score));
+    const flags = el('span', 'flags');
+    if (item.error) flags.append(el('span', 'bad', 'couldn’t score'));
+    for (const failed of item.failedRubrics.slice(0, 2)) flags.append(el('span', 'bad', failed.name));
+    if (item.failedRubrics.length > 2) flags.append(el('span', 'bad', `+${item.failedRubrics.length - 2} more`));
+    if (item.failedCalls) flags.append(el('span', 'bad', count(item.failedCalls, 'tool call') + ' failed'));
+    if (!flags.childElementCount) flags.append(el('span', 'muted', 'nothing failed'));
+    row.append(el('span', 'sid', shortId(item.sessionId)), el('span', 'when', when(item.startedAt)), score, flags);
     row.addEventListener('click', () => void openSessionById(item.sessionId));
     list.append(row);
   }
-  return list;
+  const head = el('div', 'list-head');
+  head.append(bar);
+  box.replaceChildren(head, list);
 }
 
-/** Opens one of the current agent's sessions in the session drawer. */
-async function openSessionById(sessionId) {
+/**
+ * One rubric under one agent: what it asks, how many sessions it passed, and
+ * those sessions, failures first. Has its own address, so it can be linked to.
+ */
+async function openRubric(agentId, rubricId) {
+  window.dispatchEvent(new CustomEvent('show-view', { detail: 'agent' }));
+  history.replaceState(null, '', `#agent=${encodeURIComponent(agentId)}&rubric=${encodeURIComponent(rubricId)}`);
+  const page = $('agent-page');
+  let data;
+  try {
+    if (!watch.current || watch.current.agent.id !== agentId) {
+      watch.current = await json(`/api/agents/${encodeURIComponent(agentId)}?window=${watch.window}`);
+    }
+    data = await json(`/api/agents/${encodeURIComponent(agentId)}/rubrics/${encodeURIComponent(rubricId)}?window=${watch.window}&show=${watch.show.rubric}`);
+  } catch (error) {
+    page.replaceChildren(el('p', 'flagc pad', `Could not load the rubric: ${error.message}`));
+    return;
+  }
+  const { rubric, health } = data;
+  page.replaceChildren();
+  const top = el('div', 'agent-top');
+  const back = el('button', 'quiet', `← ${watch.current.agent.name}`);
+  back.type = 'button';
+  back.addEventListener('click', () => void openAgent(agentId));
+  top.append(back);
+  page.append(top);
+
+  const head = el('div', 'rubric-head');
+  const title = el('div');
+  const name = el('h2', null, rubric.name);
+  if (rubric.kind === 'alert' && rubric.alert) {
+    name.append(el('span', 'badge alert', rubric.alert.window === 'session' ? 'alert, fires on 1 in a session' : `alert, fires on ${rubric.alert.threshold} a ${rubric.alert.window}`));
+  }
+  title.append(name, el('p', 'q', rubric.question));
+  const rate = el('div', 'rate');
+  if (health?.passRate !== null && health?.passRate !== undefined) {
+    rate.append(el('span', `big ${band(health.passRate).cls}`, pct(health.passRate)), el('span', 'hint of', `passed ${health.passed} of ${health.answered} sessions`));
+  } else {
+    rate.append(el('span', 'hint of', 'not asked in this window'));
+  }
+  head.append(title, rate);
+  page.append(head);
+
+  const body = el('section', 'agent-section');
+  const bar = filterBar(VERDICT_FILTERS, data.counts, watch.show.rubric, (key) => {
+    watch.show.rubric = key;
+    void openRubric(agentId, rubricId);
+  });
+  const listHead = el('div', 'list-head');
+  listHead.append(bar);
+  if (health && !health.verified) listHead.append(el('span', 'hint', 'validity unchecked: run a validity check before relying on this rate'));
+  body.append(listHead);
+  const list = el('div', 'session-list');
+  if (data.sessions.length === 0) {
+    list.append(el('p', 'hint', watch.show.rubric === 'failed' ? 'No session failed this rubric in this window.'
+      : watch.show.rubric === 'passed' ? 'No session passed this rubric in this window.' : 'This rubric wasn’t asked in this window.'));
+  }
+  for (const item of data.sessions) {
+    const row = el('button', 'srow');
+    row.type = 'button';
+    const verdict = el('span', `verdict ${item.passed === false ? 'fail' : item.passed ? 'pass' : ''}`, item.passed === false ? 'Failed' : item.passed ? 'Passed' : item.answer);
+    if (item.certainty) verdict.append(el('span', 'lbl', `${item.certainty.label} ${item.certainty.value.toFixed(2)}`));
+    const quote = el('span', 'quote');
+    if (item.located?.quote) {
+      quote.append(el('span', 'who', 'Agent'), document.createTextNode(`"${item.located.quote.replace(/\s+/g, ' ').slice(0, 140)}"`));
+      if (item.located.confidence !== null) quote.append(el('span', 'p', `confidence ${item.located.confidence.toFixed(2)}`));
+    } else if (item.located?.reason) {
+      quote.append(el('span', 'muted', item.located.reason));
+    } else {
+      quote.append(el('span', 'muted', `answer: ${item.answer}`));
+    }
+    row.append(el('span', 'sid', shortId(item.sessionId)), el('span', 'when', when(item.startedAt)), verdict, quote);
+    row.addEventListener('click', () => void openSessionById(item.sessionId, rubric.id));
+    list.append(row);
+  }
+  body.append(list);
+  page.append(body);
+}
+
+/**
+ * Opens one of the current agent's sessions in the session drawer — focused on
+ * a rubric when opened from one, so the drawer can pin it and find its message.
+ */
+async function openSessionById(sessionId, focusRubric) {
   try {
     const session = await json(`/api/sessions/${encodeURIComponent(sessionId)}?agentId=${encodeURIComponent(watch.current.agent.id)}`);
-    window.dispatchEvent(new CustomEvent('open-session', { detail: session }));
+    window.dispatchEvent(new CustomEvent('open-session', { detail: focusRubric ? { ...session, focusRubric } : session }));
   } catch (error) {
     notice('agent-notice', error.message);
   }
@@ -898,12 +1025,13 @@ window.addEventListener('view-shown', (event) => {
 });
 
 // A link from an alert opens that agent; otherwise the fleet leads when there is one.
-const deepLink = location.hash.match(/^#agent=([\w-]+)/);
+const deepLink = location.hash.match(/^#agent=([\w-]+)(?:&rubric=(\w+))?/);
 const initial = await json('/api/agents?window=24h').catch(() => []);
 watch.live = await json('/api/watch').catch(() => null);
 watch.agents = initial;
 json('/api/alerts').then(updateAlertCount).catch(() => {});
-if (deepLink) void openAgent(decodeURIComponent(deepLink[1]));
+if (deepLink?.[2]) void openRubric(decodeURIComponent(deepLink[1]), deepLink[2]);
+else if (deepLink) void openAgent(decodeURIComponent(deepLink[1]));
 else if (initial.length) window.dispatchEvent(new CustomEvent('show-view', { detail: 'fleet' }));
 
 // Keep the board current while it is open; the collector writes in the background.
