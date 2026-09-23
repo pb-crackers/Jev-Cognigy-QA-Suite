@@ -94,6 +94,18 @@ describe('agents over HTTP', () => {
     assert.equal(list.body[0].dataProblems, 0);
   });
 
+  it("lists an agent's sessions and a rubric's sessions, and refuses a filter it doesn't know", async () => {
+    const list = await call('/api/agents/home-loans/sessions?show=all');
+    assert.equal(list.status, 200);
+    assert.deepEqual(Object.keys(list.body.counts).sort(), ['all', 'call_failed', 'not_scored', 'rubric_failed']);
+    assert.equal((await call('/api/agents/home-loans/sessions?show=everything')).status, 400);
+    const rubric = await call('/api/agents/home-loans/rubrics/jailbroken?show=failed');
+    assert.equal(rubric.status, 200);
+    assert.equal(rubric.body.rubric.id, 'jailbroken');
+    assert.deepEqual(rubric.body.counts, { failed: 0, passed: 0, all: 0 });
+    assert.equal((await call('/api/agents/home-loans/rubrics/nope')).status, 404);
+  });
+
   it('asks which session to score before retrying', async () => {
     const { status, body } = await call('/api/agents/home-loans/retry', { method: 'POST', body: '{}' });
     assert.equal(status, 400);
