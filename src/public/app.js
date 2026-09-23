@@ -7,20 +7,7 @@
  * weight slider moves, because that is the whole point of storing raw results —
  * re-weighting has to feel instant and must not cost an API call.
  */
-const el = (tag, className, text) => {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
-};
-const $ = (id) => document.getElementById(id);
-const usd = (n) => `$${n < 0.01 ? n.toFixed(6) : n.toFixed(2)}`;
-const json = async (url, options) => {
-  const response = await fetch(url, options);
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
-  return body;
-};
+import { $, el, json, usd } from './dom.js';
 
 const state = {
   projects: [],
@@ -61,7 +48,10 @@ function show(view) {
   for (const tab of document.querySelectorAll('.tab')) {
     tab.classList.toggle('on', tab.dataset.view === view);
   }
+  // Agent Watch's views live in their own module and refresh when shown.
+  window.dispatchEvent(new CustomEvent('view-shown', { detail: view }));
 }
+window.addEventListener('show-view', (event) => show(event.detail));
 
 $('tabs').addEventListener('click', (event) => {
   const tab = event.target.closest('.tab');
@@ -438,8 +428,24 @@ function modalityOf(kind) {
 
 /** Whether a rubric was asked of this session. Derived, never stored. */
 function applies(rubric, session) {
+  return notApplicableBecause(rubric, session) === null;
+}
+
+/**
+ * Why a rubric was not asked of a session, or null when it was. Mirrors the
+ * server: modality scoping, and trace rubrics needing full logging coverage.
+ */
+function notApplicableBecause(rubric, session) {
   const modality = modalityOf(session.channelKind);
-  return modality === undefined || !rubric.appliesTo || rubric.appliesTo === modality;
+  if (modality !== undefined && rubric.appliesTo && rubric.appliesTo !== modality) {
+    return `This rubric only applies to ${rubric.appliesTo === 'voice' ? 'voice calls' : 'text conversations'}. It was never asked, so nothing was paid for it.`;
+  }
+  if (rubric.requiresTrace && session.traceCoverage !== 'full') {
+    return session.traceCoverage === 'partial'
+      ? "This rubric needs the agent's logged LLM calls for the whole conversation, and only part of it was logged, so it was not asked."
+      : "This rubric needs the agent's logged LLM calls, and none were received for this conversation, so it was not asked.";
+  }
+  return null;
 }
 
 /** The scope pill shown beside a rubric that has one. Unscoped rubrics get none. */
@@ -450,6 +456,58 @@ function scopePill(rubric) {
   pill.title = `Only asked of ${rubric.appliesTo === 'voice' ? 'voice calls' : 'text conversations'}.`;
   return pill;
 }
+
+/**
+ * A rubric's validity: the score when it has been checked, and why it is not
+ * higher on hover. Unchecked reads as such — it counts at half weight in health.
+ */
+function validityCell(report) {
+  const cell = el('td', 'n validity');
+  if (!report) {
+    cell.append(el('span', 'muted', 'unchecked'));
+    return cell;
+  }
+  const score = el('span', report.warnings.length ? 'v warn' : 'v', report.validity.toFixed(2));
+  cell.append(score);
+  if (report.warnings.length) {
+    cell.title = report.warnings.map((warning) => `• ${warning}`).join('\n');
+    cell.append(el('span', 'wcount', `${report.warnings.length} note${report.warnings.length === 1 ? '' : 's'}`));
+  }
+  return cell;
+}
+
+async function loadValidity() {
+  state.validity = await json('/api/validity').catch(() => ({}));
+  renderRubrics();
+}
+
+$('btn-check-validity').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  button.textContent = 'Checking…';
+  try {
+    const result = await json('/api/validity', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ stability: true }),
+    });
+    state.validity = Object.fromEntries(result.reports.map((report) => [report.rubricId, report]));
+    renderRubrics();
+    $('rubric-hint').textContent = `Checked ${result.reports.length} rubrics for ${usd(result.costUsd)}`;
+  } catch (error) {
+    $('rubric-hint').textContent = `Validity check failed: ${error.message}`;
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Check validity';
+  }
+});
+
+$('r-kind').addEventListener('change', () => {
+  $('alert-rule').hidden = $('r-kind').value !== 'alert';
+  // An alert is a yes/no question by definition.
+  if ($('r-kind').value === 'alert') {
+    $('r-type').value = 'boolean';
+    $('r-type').dispatchEvent(new Event('change'));
+  }
+});
 
 function renderRubrics() {
   const rows = $('rubric-rows');
@@ -463,9 +521,17 @@ function renderRubrics() {
     const scope = scopePill(rubric);
     if (scope) heading.append(scope);
     name.append(heading, el('div', 'rd', rubric.question));
+    // Most rubrics ship with the tool, so the badge marks the exception: ones written here.
+    if (rubric.origin === 'custom') heading.append(el('span', 'badge', 'custom'));
+    if (rubric.kind === 'alert') {
+      const rule = rubric.alert;
+      heading.append(el('span', 'badge alert',
+        rule && rule.threshold > 1 ? `alert at ${rule.threshold} per ${rule.window}` : 'alert'));
+    }
+    if (rubric.requiresTrace) heading.append(el('span', 'badge', 'needs logging'));
     const type = el('td');
     type.append(pill(rubric.type));
-    tr.append(name, type, el('td', 'n', String(rubric.weight)));
+    tr.append(name, type, el('td', 'n', String(rubric.weight)), validityCell(state.validity?.[rubric.id]));
     tr.addEventListener('click', () => editRubric(rubric));
     rows.append(tr);
   }
@@ -487,6 +553,13 @@ function editRubric(rubric) {
   $('r-note-text').value = rubric?.notes?.text ?? '';
   $('r-weight').value = rubric?.weight ?? 1;
   $('r-invert').value = rubric?.invert ? 'yes' : 'no';
+  $('r-kind').value = rubric?.kind === 'alert' ? 'alert' : 'quality';
+  $('r-threshold').value = rubric?.alert?.threshold ?? 1;
+  $('r-window').value = rubric?.alert?.window ?? 'session';
+  $('r-intent').value = rubric?.intent ?? '';
+  $('r-trace').checked = Boolean(rubric?.requiresTrace);
+  $('r-general').checked = Boolean(rubric?.general);
+  $('alert-rule').hidden = $('r-kind').value !== 'alert';
   $('r-true').value = rubric?.trueMeans ?? '';
   $('r-false').value = rubric?.falseMeans ?? '';
   renderLevels(rubric?.levels ?? ['', '']);
@@ -629,6 +702,13 @@ $('rubric-form').addEventListener('submit', async (event) => {
     weight: Number($('r-weight').value),
     enabled: true,
     invert: $('r-invert').value === 'yes',
+    kind: $('r-kind').value,
+    alert: $('r-kind').value === 'alert'
+      ? { threshold: Number($('r-threshold').value) || 1, window: $('r-window').value }
+      : undefined,
+    intent: $('r-intent').value.trim() || undefined,
+    requiresTrace: $('r-trace').checked || undefined,
+    general: $('r-general').checked || undefined,
     appliesTo: $('r-applies').value || undefined,
     notes: {
       voice: $('r-note-voice').value.trim() || undefined,
@@ -943,6 +1023,9 @@ $('btn-download-brief').addEventListener('click', async () => {
 
 // ---------- session drill-down ----------
 
+// Agent Watch opens a session from an agent's failing list with the same drawer.
+window.addEventListener('open-session', (event) => openSession(event.detail));
+
 function openSession(session) {
   if (session.unscoreable) return;
 
@@ -959,10 +1042,10 @@ function openSession(session) {
   const transcript = $('session-transcript');
   transcript.replaceChildren();
   for (const turn of JSON.parse(session.transcript)) {
-    const row = el('div', `turn ${turn.role}`);
+    const row = el('div', `turn ${turn.role}${turn.tool ? ' tool' : ''}`);
     row.append(
-      el('span', 'who', turn.role === 'user' ? 'User' : turn.role === 'agent' ? 'Agent' : ''),
-      el('span', null, turn.text),
+      el('span', 'who', turn.tool ? 'Tool' : turn.role === 'user' ? 'User' : turn.role === 'agent' ? 'Agent' : ''),
+      el('span', null, turn.tool ? turn.text.replace(/^\[|\]$/g, '') : turn.text),
     );
     transcript.append(row);
   }
@@ -985,11 +1068,7 @@ function openSession(session) {
       if (scope) name.append(scope);
       head.append(name, el('span', 'rv', applies(rubric, session) ? '—' : 'Not applicable'));
       missing.append(head, el('div', 'rq', rubric.question));
-      missing.append(
-        el('div', 'meta', applies(rubric, session)
-          ? 'Asked, but no answer came back.'
-          : `This rubric only applies to ${rubric.appliesTo === 'voice' ? 'voice calls' : 'text conversations'}. It was never asked, so nothing was paid for it.`),
-      );
+      missing.append(el('div', 'meta', notApplicableBecause(rubric, session) ?? 'Asked, but no answer came back.'));
       panel.append(missing);
       continue;
     }
@@ -1079,6 +1158,7 @@ if (config.projectId && projects.some((project) => project.id === config.project
 }
 await loadEndpoints();
 renderRubrics();
+void loadValidity();
 void preview();
 // Show the most recent run straight away: a tool that opens on an empty form
 // tells you nothing about what it does.

@@ -11,8 +11,10 @@
   <header class="bar">
     <span class="brand">Jev Cognigy QA</span>
     <nav class="tabs" id="tabs">
+      <button class="tab" data-view="fleet" type="button">Agents</button>
       <button class="tab on" data-view="score" type="button">Score</button>
       <button class="tab" data-view="rubrics" type="button">Rubrics</button>
+      <button class="tab" data-view="alerts" type="button">Alerts <span class="tab-count" id="alert-count" hidden></span></button>
     </nav>
     <span class="env" id="env"></span>
     <button class="theme" id="btn-theme" type="button" aria-label="Switch between dark and light"></button>
@@ -98,17 +100,58 @@
     </div>
   </section>
 
+  <!--
+    Agent Watch. The fleet is a status board: one row per agent, and in each row
+    one number allowed to be loud — its health. Everything else in the row is the
+    context that number needs to be trusted.
+  -->
+  <section class="view" id="view-fleet" hidden>
+    <div class="watch-head">
+      <h2>Agents</h2>
+      <div class="watch-actions">
+        <div class="seg" id="fleet-window" role="group" aria-label="Health window">
+          <button type="button" data-window="24h" aria-pressed="true">24 hours</button>
+          <button type="button" data-window="7d" aria-pressed="false">7 days</button>
+          <button type="button" data-window="30d" aria-pressed="false">30 days</button>
+        </div>
+        <button class="btn" id="btn-add-agents" type="button">Add agents</button>
+      </div>
+    </div>
+    <div id="fleet-notice"></div>
+    <div id="adopt-panel" class="adopt" hidden>
+      <div class="adopt-head">
+        <label class="f"><span class="f-label">Suggest agents from</span><select class="ctl" id="adopt-project"></select></label>
+        <label class="check"><input type="checkbox" id="adopt-panel-traffic"><span>Include Interaction Panel sessions in the agent's own Flows</span></label>
+      </div>
+      <div id="adopt-list"></div>
+    </div>
+    <div id="fleet-list"></div>
+  </section>
+
+  <section class="view" id="view-agent" hidden>
+    <div id="agent-page"></div>
+  </section>
+
+  <section class="view" id="view-alerts" hidden>
+    <div class="watch-head">
+      <h2>Alerts</h2>
+      <p class="hint">Keyed on when the conversation happened. A late alert says when it was detected too.</p>
+    </div>
+    <div id="alerts-list"></div>
+  </section>
+
   <!-- Rubrics -->
   <section class="body view" id="view-rubrics" hidden>
     <div class="section-head">
       <h2 id="rubric-count">Rubrics</h2>
       <div class="section-actions">
         <span class="hint" id="rubric-hint"></span>
+        <button class="btn ghost" id="btn-check-validity" type="button">Check validity</button>
         <button class="btn" id="btn-new-rubric" type="button">New rubric</button>
       </div>
     </div>
     <table id="rubric-table">
-      <thead><tr><th>Rubric</th><th>Type</th><th class="n">Weight</th></tr></thead>
+      <thead><tr><th>Rubric</th><th>Type</th><th class="n">Weight</th><th class="n">Validity</th></tr></thead>
       <tbody id="rubric-rows"></tbody>
     </table>
   </section>
@@ -225,6 +268,27 @@
           straying or frustration.</p></div>
     </div>
 
+    <fieldset class="watch-fields">
+      <legend>Agent Watch</legend>
+      <div class="f"><label for="r-kind">When this happens</label><select class="ctl" id="r-kind">
+        <option value="quality">Count it toward quality</option>
+        <option value="alert">Alert someone</option></select>
+        <p class="help">An alert is a yes/no question where <b>yes</b> means it happened &mdash;
+          for example, the agent offered a discount it has no authority to give.</p></div>
+      <div class="grid two" id="alert-rule" hidden>
+        <div class="f"><label for="r-threshold">Alert after</label>
+          <input class="ctl" id="r-threshold" type="number" min="1" step="1" value="1"></div>
+        <div class="f"><label for="r-window">within one</label><select class="ctl" id="r-window">
+          <option value="session">conversation</option>
+          <option value="hour">hour</option>
+          <option value="day">day</option></select></div>
+      </div>
+      <div class="f"><label for="r-intent">What should this catch?</label>
+        <textarea class="ctl" id="r-intent" rows="2" placeholder="In your own words — validity checks the wording against this"></textarea></div>
+      <label class="check"><input type="checkbox" id="r-trace"><span>Needs the agent's logged LLM calls &mdash; its instructions and tool calls</span></label>
+      <label class="check"><input type="checkbox" id="r-general"><span>Checks all of the agent's instructions at once</span></label>
+    </fieldset>
+
     <div id="rubric-error"></div>
     <div class="rowend">
       <button class="btn ghost" id="btn-delete" type="button" hidden>Delete</button>
@@ -233,5 +297,6 @@
   </form>
 </aside>
 <script src="/app.js" type="module"></script>
+<script src="/watch.js" type="module"></script>
 </body>
 </html>
