@@ -28,6 +28,8 @@ export interface CognigyEndpoint {
   /** The Flow the endpoint enters, as a Flow `referenceId`. */
   flowRef?: string;
   channel?: string;
+  /** The endpoint's public token — the last segment of its URL. */
+  urlToken?: string;
 }
 
 /** A Cognigy AI Agent resource — the persona and instructions, not the Flow. */
@@ -80,6 +82,7 @@ interface RawFlow extends RawNamed {
 interface RawEndpoint extends RawNamed {
   flowId?: string;
   channel?: string;
+  URLToken?: string;
 }
 
 interface RawAiAgent extends RawNamed {
@@ -176,6 +179,7 @@ export class CognigyApi {
       name: item.name,
       flowRef: item.flowId || undefined,
       channel: item.channel,
+      urlToken: item.URLToken || undefined,
     }));
   }
 

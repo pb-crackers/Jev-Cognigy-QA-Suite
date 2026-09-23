@@ -8,7 +8,7 @@
  */
 import { $, el, json, usd } from './dom.js';
 
-const watch = { window: '24h', agents: [], rubrics: [], projects: [], current: null };
+const watch = { window: '24h', agents: [], rubrics: [], projects: [], current: null, live: null };
 
 const pct = (value) => `${Math.round(value * 100)}%`;
 /** Cognigy's UUIDs read fine at eight characters; an id someone chose is kept whole. */
@@ -267,6 +267,22 @@ function renderAgent() {
       collect.textContent = 'Collect now';
     }
   });
+  if (watch.live?.demo && agent.endpoints.some((endpoint) => endpoint.channel === 'rest' && endpoint.urlToken)) {
+    const start = el('button', 'btn ghost', 'Start simulated chats');
+    start.type = 'button';
+    start.addEventListener('click', async () => {
+      start.disabled = true;
+      try {
+        const { started } = await post(`/api/agents/${agent.id}/simulate`, { count: 6 });
+        notice('agent-notice', `Started ${count(started.length, 'conversation')}. Each is scored about a minute after its last message.`, 'ok');
+        void pollLive();
+      } catch (error) {
+        notice('agent-notice', error.message);
+      }
+      start.disabled = false;
+    });
+    actions.append(start);
+  }
   actions.append(collect);
   top.append(back, actions);
   page.append(top);
@@ -274,13 +290,17 @@ function renderAgent() {
   const head = el('div', 'agent-head');
   const title = el('div');
   title.append(el('h2', null, agent.name));
-  title.append(el('p', 'hint', `${agent.projectName}. ${agent.enabled ? `Collected every ${agent.intervalMinutes} minutes, last ${ago(state.lastCollectedAt)}` : 'Paused'}.`));
+  const every = watch.live?.demo ? 'every minute (demo)' : `every ${agent.intervalMinutes} minutes`;
+  title.append(el('p', 'hint', `${agent.projectName}. ${agent.enabled ? `Collected ${every}, last ${ago(state.lastCollectedAt)}` : 'Paused'}.`));
   head.append(title, healthFigure(detail, 'large'));
   page.append(head);
   page.append(el('p', 'agent-caption', healthCaption(detail)));
   const noticeBox = el('div');
   noticeBox.id = 'agent-notice';
   page.append(noticeBox);
+  const live = el('div');
+  live.id = 'agent-live';
+  page.append(live);
   if (state.lastError) notice('agent-notice', `The last collection failed: ${state.lastError}`);
 
   if (detail.trend.length > 1) page.append(section('Health by day', trendChart(detail.trend)));
@@ -704,16 +724,95 @@ function updateAlertCount(alerts) {
   $('alert-count').textContent = String(recent);
 }
 
+// ---------- live activity (demo mode) ----------
+
+/**
+ * What is happening right now: the conversations being held with an agent,
+ * and each collection as it lands. Shown only in demo mode, where collection
+ * runs every minute and there is something to watch.
+ */
+function livePanel(live, agentId) {
+  const feed = live.feed.filter((turn) => !agentId || turn.agentId === agentId).slice(0, 14);
+  // A collection that found nothing is the normal case between chats; listing each one buries the ones that did.
+  const recent = live.recent.filter((report) => (!agentId || report.agentId === agentId) && (report.found || report.error)).slice(0, 6);
+  const box = el('section', 'agent-section live');
+  const head = el('div', 'agent-section-head');
+  head.append(el('h3', null, 'Live'));
+  head.append(el('span', `hint live-status${live.scheduler.collecting ? ' busy' : ''}`,
+    live.scheduler.collecting ? 'Collecting now…' : 'Collecting every minute'));
+  box.append(head);
+
+  const grid = el('div', 'live-grid');
+  const talk = el('div', 'live-col');
+  talk.append(el('h4', null, 'Conversations'));
+  if (feed.length === 0) talk.append(el('p', 'hint', agentId ? 'Nothing yet. Start simulated chats to have customers talk to this agent.' : 'Nothing yet. Open an agent and start simulated chats.'));
+  for (const turn of feed) {
+    const line = el('div', 'live-turn');
+    line.append(el('span', 'live-who', turn.persona), el('span', 'live-time hint', ago(turn.at)));
+    line.append(el('p', 'live-said', turn.said));
+    if (turn.error) line.append(el('p', 'flagc', turn.error));
+    else if (turn.replies.length) line.append(el('p', 'live-reply', plain(turn.replies.join(' '))));
+    talk.append(line);
+  }
+
+  const runs = el('div', 'live-col');
+  runs.append(el('h4', null, 'Collections'));
+  if (recent.length === 0) runs.append(el('p', 'hint', 'Nothing collected yet. A chat is scored about a minute after its last message.'));
+  for (const report of recent) {
+    const line = el('div', 'live-run');
+    const what = report.error ? `failed: ${report.error}`
+      : report.scored ? `scored ${count(report.scored, 'session')} for ${usd(report.costUsd)}`
+      : report.deferred ? `${count(report.deferred, 'conversation')} still going` : 'nothing new';
+    line.append(el('span', null, `${agentId ? '' : `${report.agentName}: `}${what}`));
+    if (report.alertsFired) line.append(el('span', 'flagc', count(report.alertsFired, 'alert') + ' fired'));
+    line.append(el('span', 'hint', ago(report.at)));
+    runs.append(line);
+  }
+  grid.append(talk, runs);
+  box.append(grid);
+  return box;
+}
+
+/** Agent replies are Markdown; in a one-line preview the markers are noise. */
+const plain = (text) => text.replace(/\*\*|__|`/g, '').replace(/^#+\s*/gm, '').replace(/\s+/g, ' ');
+
+/** The newest collection that scored something; when it changes, the figures on screen are stale. */
+const lastScored = (live) => live?.recent.find((report) => report.scored || report.alertsFired)?.at;
+
+async function pollLive() {
+  let live;
+  try {
+    live = await json('/api/watch');
+  } catch {
+    return;
+  }
+  const stale = watch.live && lastScored(live) !== lastScored(watch.live);
+  watch.live = live;
+  if (!live.demo) return;
+  if (!$('view-fleet').hidden) {
+    if (stale) await loadFleet();
+    $('fleet-live').replaceChildren(livePanel(live));
+  }
+  if (!$('view-agent').hidden && watch.current) {
+    if (stale) {
+      await openAgent(watch.current.agent.id);
+      json('/api/alerts').then(updateAlertCount).catch(() => {});
+    }
+    $('agent-live')?.replaceChildren(livePanel(live, watch.current.agent.id));
+  }
+}
+
 // ---------- routing ----------
 
 window.addEventListener('view-shown', (event) => {
-  if (event.detail === 'fleet') void loadFleet();
+  if (event.detail === 'fleet') void loadFleet().then(pollLive);
   if (event.detail === 'alerts') void loadAlerts();
 });
 
 // A link from an alert opens that agent; otherwise the fleet leads when there is one.
 const deepLink = location.hash.match(/^#agent=([\w-]+)/);
 const initial = await json('/api/agents?window=24h').catch(() => []);
+watch.live = await json('/api/watch').catch(() => null);
 watch.agents = initial;
 json('/api/alerts').then(updateAlertCount).catch(() => {});
 if (deepLink) void openAgent(decodeURIComponent(deepLink[1]));
@@ -724,3 +823,5 @@ setInterval(() => {
   if (!$('view-fleet').hidden) void loadFleet();
   if (!$('view-alerts').hidden) void loadAlerts();
 }, 60_000);
+// In demo mode the board is meant to be watched, so it follows along closely.
+if (watch.live?.demo) setInterval(() => void pollLive(), 5_000);

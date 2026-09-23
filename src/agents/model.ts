@@ -17,6 +17,8 @@ export interface AgentEndpoint {
   /** The Flow the endpoint enters, as a Flow `referenceId`. */
   flowRef?: string;
   channel?: string;
+  /** The endpoint's public token, which is what a simulated conversation posts to. */
+  urlToken?: string;
 }
 
 /** One node Agent Watch wrote logging into, with what was there before. */

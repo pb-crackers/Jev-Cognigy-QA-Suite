@@ -101,6 +101,17 @@ What it adds:
   said it should — plus how often its verdict flips on an identical re-ask.
 - **Coverage.** Which of the agent's instructions no rubric specifically checks.
 
+### Demo mode
+
+To watch it work in real time without a tunnel:
+
+```sh
+jev-cognigy-qa demo                                   # opens the app, collecting every minute
+jev-cognigy-qa simulate --agent <id> [--count 6]      # or press "Start simulated chats" on the agent page
+```
+
+Simulated customers (a first-time buyer, a rate pusher, a jailbreaker, a frustrated customer, an applicant and an off-topic asker) talk to the agent's REST endpoint at once. The agent's replies are real. Each chat is scored about a minute after its last message, and the board, the alerts and a live feed update as it happens. The agent needs a REST endpoint. The endpoint host is derived from `COGNIGY_API_BASE` (`api-…` becomes `endpoint-…`); set `COGNIGY_ENDPOINT_BASE` where that doesn't hold. LLM logging isn't needed, so the trace-only rubrics stay not applicable.
+
 ### Exposing the webhook safely
 
 Cognigy has to reach the webhook, so it needs a tunnel. Expose **only** `/hook/`: every other

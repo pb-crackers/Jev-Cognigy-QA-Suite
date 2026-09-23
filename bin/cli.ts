@@ -40,6 +40,7 @@ import { computeHealth, WINDOW_DAYS, type HealthWindow } from '../src/health/hea
 import { checkCoverage } from '../src/validity/coverage.ts';
 import { checkValidity } from '../src/validity/validity.ts';
 import { importTraces } from '../src/traces/receiver.ts';
+import { cast, endpointBase, PERSONAS, restEndpoint, simulate } from '../src/demo/simulate.ts';
 
 // Load .env ourselves so every command works as a bare invocation from any
 // directory. Requiring `--env-file` is friction for a person and a trap for an
@@ -184,7 +185,7 @@ function logCollection(report: CollectReport): void {
  * posts to, and the collector loop. `watch` is the same without opening a
  * browser, which is what the background service runs.
  */
-function start(options: { openBrowser: boolean } = { openBrowser: true }): void {
+function start(options: { openBrowser: boolean; demo?: boolean } = { openBrowser: true }): void {
   let deps;
   try {
     deps = buildDeps();
@@ -194,21 +195,26 @@ function start(options: { openBrowser: boolean } = { openBrowser: true }): void 
     return;
   }
 
+  // Demo mode collects every minute and scores a conversation once it has been
+  // quiet for one, so a simulated chat reaches the board while you watch.
   const scheduler = new Scheduler(
-    { api: deps.api, odata: deps.odata, store: deps.store, appUrl: 'http://localhost:' + PORT },
+    { api: deps.api, odata: deps.odata, store: deps.store, appUrl: 'http://localhost:' + PORT,
+      settleMinutes: options.demo ? 1 : undefined },
     logCollection,
+    { intervalMinutes: options.demo ? 1 : undefined },
   );
   const rubrics = deps.store.rubrics().length;
   const agents = deps.store.agents().length;
   // Loopback only. A tunnel runs on this machine and reaches it here; nothing on
   // the network can, and the app refuses tunnelled requests for anything but
   // the webhook.
-  createApp({ ...deps, scheduler }).listen(PORT, '127.0.0.1', () => {
+  createApp({ ...deps, scheduler, demo: options.demo, feed: [] }).listen(PORT, '127.0.0.1', () => {
     const url = 'http://localhost:' + PORT;
     console.log('\n  ' + bold('Jev Cognigy QA') + ' ' + dim(`- ${rubrics} rubrics, ${agents} agent(s) watched`));
     console.log('  ' + green('->') + ' ' + url);
     console.log('  ' + dim('webhook  ') + (deps.config.publicUrl ? deps.config.publicUrl + '/hook/<agent>' : dim('set AGENT_WATCH_PUBLIC_URL to receive LLM logs')) + '\n');
-    scheduler.start();
+    if (options.demo) console.log('  ' + bold('Demo mode') + dim(' — collecting every minute, scoring a chat after one quiet minute') + '\n');
+    scheduler.start(options.demo ? 15_000 : undefined);
     if (!options.openBrowser) return;
     // Best effort: failing to open a browser must not stop the server.
     const opener = process.platform === 'darwin'
@@ -450,6 +456,29 @@ async function headless(command: string, argv: string[]): Promise<void> {
     return out(importTraces(store, agentId, JSON.parse(await readFile(String(flags.file), 'utf8'))));
   }
 
+  if (command === 'simulate') {
+    const agentId = String(flags.agent ?? '');
+    const agent = store.agent(agentId);
+    if (!agent) return fail('--agent <id> is required; see `agents`');
+    const endpoint = restEndpoint(agent);
+    const base = endpointBase(config.cognigyApiBase, process.env.COGNIGY_ENDPOINT_BASE);
+    if (!endpoint || !base) return fail(`${agent.name} has no REST endpoint to talk to`);
+    const only = flags.personas ? String(flags.personas).split(',').map((id) => id.trim()) : undefined;
+    const personas = cast(Number(flags.count ?? 6), only);
+    if (!personas.length) return fail(`no such persona; choose from ${PERSONAS.map((p) => p.id).join(', ')}`);
+    process.stderr.write(`Starting ${personas.length} conversations with ${agent.name}\n`);
+    const result = await simulate({
+      url: `${base}/${endpoint.urlToken}`,
+      personas,
+      onTurn: (event) => {
+        process.stderr.write(`  [${event.persona}] > ${event.said}\n`);
+        if (event.error) process.stderr.write(`  [${event.persona}] ! ${event.error}\n`);
+        for (const reply of event.replies) process.stderr.write(`  [${event.persona}] < ${reply.replace(/\s+/g, ' ').slice(0, 140)}\n`);
+      },
+    });
+    return out(result);
+  }
+
   if (command === 'daemon') {
     const action = argv[0];
     if (action === 'install') return out({ installed: await installDaemon(PACKAGE_ROOT) });
@@ -556,7 +585,7 @@ const USAGE = `
     brief [<runId>]                   synthesised findings as markdown, for an agent
 
   Agent Watch:
-    watch                             run the UI, webhook and collector without a browser
+    watch [--demo]                    run the UI, webhook and collector without a browser
     agents [--window 24h|7d|30d]      every watched agent with its health
     agent suggest --project <name>    agents proposed from the project's endpoints
     agent add --project <name> --suggestion <id> [--panel]
@@ -573,17 +602,23 @@ const USAGE = `
     trace import <agentId> --file <path>
                                       load logged LLM calls captured elsewhere
     daemon install|uninstall|status   keep the monitor running in the background (macOS)
+
+  Demo:
+    demo                              open the app with collection every minute
+    simulate --agent <id> [--count 6] [--personas rate-pusher,jailbreaker]
+                                      hold simulated conversations with the agent's REST endpoint
 `;
 
 const [command, ...rest] = process.argv.slice(2);
 const HEADLESS = new Set([
   'projects', 'endpoints', 'channels', 'rubrics', 'rubric', 'score', 'report', 'brief',
-  'agents', 'agent', 'alerts', 'validity', 'trace', 'daemon',
+  'agents', 'agent', 'alerts', 'validity', 'trace', 'daemon', 'simulate',
 ]);
 
 if (command === 'init') await init();
 else if (!command) start();
-else if (command === 'watch') start({ openBrowser: false });
+else if (command === 'watch') start({ openBrowser: false, demo: rest.includes('--demo') });
+else if (command === 'demo') start({ openBrowser: true, demo: true });
 else if (HEADLESS.has(command)) await headless(command, rest);
 else if (command === 'help' || command === '--help') console.log(USAGE);
 else {
