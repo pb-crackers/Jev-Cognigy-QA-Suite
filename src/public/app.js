@@ -1352,32 +1352,50 @@ function notScored(session) {
   return box;
 }
 
-/** The full session id, with a button to copy it — to share it, or find it in Cognigy. */
-function sessionIdCopy(sessionId) {
-  const wrap = el('span', 'sid-copy');
-  wrap.append(el('span', 'sid', sessionId));
-  const button = el('button', 'copy', 'Copy');
+const SVG = 'http://www.w3.org/2000/svg';
+
+/** A small line icon from path data, drawn in the current text colour. */
+function icon(paths) {
+  const svg = document.createElementNS(SVG, 'svg');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  svg.setAttribute('aria-hidden', 'true');
+  for (const d of paths) {
+    const path = document.createElementNS(SVG, 'path');
+    path.setAttribute('d', d);
+    svg.append(path);
+  }
+  return svg;
+}
+const COPY_ICON = ['M5.5 5.5h7v8h-7z', 'M3.5 10.5v-8h7'];
+const DONE_ICON = ['M3 8.5l3 3 7-7'];
+
+/** The full session id beside the close button, with an icon to copy it — to share it, or find it in Cognigy. */
+function showSessionId(sessionId) {
+  const button = el('button', 'copy');
   button.type = 'button';
+  button.title = 'Copy session id';
   button.setAttribute('aria-label', `Copy session id ${sessionId}`);
+  button.append(icon(COPY_ICON));
+  const id = el('span', 'sid', sessionId);
   button.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(sessionId);
-      button.textContent = 'Copied';
+      button.replaceChildren(icon(DONE_ICON));
+      button.title = 'Copied';
     } catch {
-      button.textContent = 'Select and copy';
-      getSelection()?.selectAllChildren(wrap.firstChild);
+      getSelection()?.selectAllChildren(id);
+      button.title = 'Selected: press Cmd+C to copy';
     }
-    setTimeout(() => { button.textContent = 'Copy'; }, 1500);
+    setTimeout(() => { button.replaceChildren(icon(COPY_ICON)); button.title = 'Copy session id'; }, 1500);
   });
-  wrap.append(button);
-  return wrap;
+  $('session-id').replaceChildren(id, button);
 }
 
 function openSession(session) {
   const calls = session.toolCalls?.length ?? 0;
   const meta = $('session-meta');
+  showSessionId(session.sessionId);
   meta.replaceChildren(
-    sessionIdCopy(session.sessionId),
     channelChip(session),
     document.createTextNode(
       ` ${session.turns} turns, ${session.endpointLabel}` +
