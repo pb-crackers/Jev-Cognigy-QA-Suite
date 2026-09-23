@@ -99,11 +99,17 @@ describe('the webhook', () => {
     assert.equal(store.traceSummary('home-loans').traces, 1);
   });
 
-  it('refuses a body too large to be a single LLM call', async () => {
+  it('refuses a body too large to be a single LLM call, and keeps serving afterwards', async () => {
     const token = store.agent('home-loans')!.trace.token;
     const huge = JSON.stringify({ meta: { sessionId: 's' }, pad: 'x'.repeat(6 * 1024 * 1024) });
-    const response = await fetch(`${base}/hook/home-loans`, { method: 'POST', headers: { 'x-webhook-token': token }, body: huge });
-    assert.equal(response.status, 413);
+    // A client still uploading may see the 413 or a closed connection; both are a refusal.
+    const outcome = await fetch(`${base}/hook/home-loans`, { method: 'POST', headers: { 'x-webhook-token': token }, body: huge })
+      .then((response) => response.status, () => 'closed');
+    assert.ok(outcome === 413 || outcome === 'closed', `refused (${outcome})`);
+    assert.equal(store.traceSummary('home-loans').traces, 1, 'nothing was stored');
+    // What the connection handling protects: the next request is answered normally.
+    const next = await call('/api/agents');
+    assert.equal(next.status, 200);
   });
 
   it('imports traces captured elsewhere', async () => {

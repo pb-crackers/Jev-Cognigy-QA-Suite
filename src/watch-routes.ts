@@ -99,11 +99,12 @@ export async function handleWatchRoute(
         raw = await readText(request, MAX_TRACE_BYTES);
       } catch (error) {
         if (!(error instanceof TooLarge)) throw error;
-        // The rest of the body is still on the socket. Answering and leaving the
-        // connection open would hand that unread upload to the next request on it,
-        // so the connection is closed once the answer is out.
+        // The rest of the body is still on the socket. Leaving the connection open
+        // would hand that unread upload to the next request on it; `connection:
+        // close` makes Node end the socket once the answer is out, so it is never
+        // reused.
         response.writeHead(413, { 'content-type': 'application/json', connection: 'close' });
-        response.end(JSON.stringify({ error: 'Trace too large' }), () => request.socket?.destroy());
+        response.end(JSON.stringify({ error: 'Trace too large' }));
         return true;
       }
       const result = receiveTrace(store, hook[1], request.headers, raw);

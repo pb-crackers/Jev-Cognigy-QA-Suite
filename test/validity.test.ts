@@ -170,6 +170,21 @@ describe('coverage', () => {
     store.close();
   });
 
+  it('leaves a general rubric out of the choice, and names it as watching the gaps', async () => {
+    const store = new Store(':memory:');
+    const rubrics = [
+      rubric({ id: 'specific', question: 'Did figures come from tools?' }),
+      rubric({ id: 'catch_all', question: 'Did it break any of its instructions?', general: true }),
+    ];
+    const agent = createAgent({ name: 'General', projectId: 'p', endpoints: [{ id: 'e', name: 'E' }] }, store, rubrics);
+    importTraces(store, agent.id, fixture('trace-greeting.json'));
+    const report = await C.checkCoverage(agent, rubrics, store);
+    const question = api.requests.at(-1)!.questions.c0 as { criteria: Record<string, string> };
+    assert.deepEqual(Object.keys(question.criteria), ['specific', 'none']);
+    assert.deepEqual(report.general, ['catch_all']);
+    store.close();
+  });
+
   it('refuses without any logged instructions to read', async () => {
     const store = new Store(':memory:');
     const agent = createAgent({ name: 'Quiet', projectId: 'p', endpoints: [{ id: 'e', name: 'E' }] }, store, []);
