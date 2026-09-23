@@ -766,7 +766,9 @@ function composite(session) {
   let weighted = 0;
   let total = 0;
   let counted = 0;
-  for (const rubric of state.rubrics) {
+  // A session from an agent lists that agent's rubrics; an ad-hoc run's, every rubric.
+  const listed = session.rubricIds ? state.rubrics.filter((rubric) => session.rubricIds.includes(rubric.id) || session.results[rubric.id]) : state.rubrics;
+  for (const rubric of listed) {
     const result = session.results[rubric.id];
     if (!result || result.normalized === undefined || result.normalized === null) continue;
     const weight = state.weights.get(rubric.id) ?? rubric.weight;
@@ -1026,32 +1028,256 @@ $('btn-download-brief').addEventListener('click', async () => {
 // Agent Watch opens a session from an agent's failing list with the same drawer.
 window.addEventListener('open-session', (event) => openSession(event.detail));
 
-function openSession(session) {
-  if (session.unscoreable) return;
+// ---------- tool calls in the transcript ----------
+//
+// Each call sits on a rail between the customer's message and the reply it
+// produced. A passing call is one quiet line; a failed check names the problem
+// in words and marks the rail. Placement comes from the server — the same
+// placement the grader read the calls in.
 
+/** Failed checks in the order their words should win: the most basic problem first. */
+const CALL_PROBLEMS = [
+  ['args_parse', 'Unreadable arguments'],
+  ['known_tool', 'Unknown tool'],
+  ['schema', 'Invalid arguments'],
+  ['tool_error', null],
+  ['has_result', 'No result'],
+];
+
+function callStatus(call) {
+  const failed = new Map(call.checks.filter((check) => check.outcome === 'fail').map((check) => [check.id, check]));
+  for (const [id, word] of CALL_PROBLEMS) {
+    if (!failed.has(id)) continue;
+    // A tool that answered with a refusal said no; one that errored broke.
+    const refused = id === 'tool_error' && /^status /.test(failed.get(id).detail ?? '');
+    return { word: word ?? (refused ? 'Rejected' : 'Error'), bad: true };
+  }
+  if (failed.has('repeat')) return { word: 'Repeat', bad: false };
+  return { word: 'OK', bad: false };
+}
+
+const showValue = (value) => (typeof value === 'string' ? value : JSON.stringify(value));
+
+/** The first few arguments, required ones first — enough to tell two calls apart. */
+function keyArgs(call) {
+  const args = call.args ?? {};
+  const required = call.definition?.parameters?.required ?? [];
+  const keys = [...required.filter((key) => key in args), ...Object.keys(args).filter((key) => !required.includes(key))];
+  return keys.slice(0, 3).map((key) => `${key} ${showValue(args[key])}`).join(', ');
+}
+
+/** Whole seconds between the model deciding to call and the result being read: as precise as the logs are. */
+function seconds(from, to) {
+  if (!from || !to) return '';
+  const ms = Date.parse(to) - Date.parse(from);
+  return Number.isFinite(ms) && ms >= 0 ? `≈${Math.max(1, Math.round(ms / 1000))} s` : '';
+}
+
+function schemaNote(schema, required) {
+  if (!schema) return required ? 'required' : '';
+  if (Array.isArray(schema.enum)) return `one of ${schema.enum.join(', ')}`;
+  const type = Array.isArray(schema.type) ? schema.type.join(' or ') : schema.type;
+  return [type, required ? 'required' : ''].filter(Boolean).join(', ');
+}
+
+function callDetail(call, times) {
+  const box = el('div', 'detail');
+  const failure = call.checks.find((check) => check.id === 'tool_error' && check.outcome === 'fail');
+  if (failure) box.append(el('div', 'callout', `The tool refused the call: ${failure.detail}`));
+
+  const schema = call.definition?.parameters;
+  const args = el('div');
+  args.append(el('h4', null, schema ? "Arguments, checked against the tool's schema" : 'Arguments'));
+  if (call.args === null) {
+    args.append(el('pre', 'result', call.argsRaw));
+  } else {
+    const issues = call.checks.find((check) => check.id === 'schema')?.issues ?? [];
+    const table = el('div', 'kv');
+    const required = schema?.required ?? [];
+    const keys = [...new Set([...Object.keys(call.args), ...required])];
+    if (keys.length === 0) table.append(el('span', 'k', '(none)'));
+    for (const key of keys) {
+      const problem = issues.find((issue) => issue.path === key || issue.path.startsWith(`${key}.`) || issue.path.startsWith(`${key}[`));
+      table.append(
+        el('span', 'k', key),
+        el('span', 'v', key in call.args ? JSON.stringify(call.args[key]) : 'missing'),
+        el('span', `s${problem ? ' bad' : ''}`, problem ? problem.message : schemaNote(schema?.properties?.[key], required.includes(key))),
+      );
+    }
+    args.append(table);
+  }
+  box.append(args);
+
+  const result = el('div');
+  result.append(el('h4', null, 'Result'));
+  result.append(call.result === undefined
+    ? el('p', 'hint', 'No result was logged for this call.')
+    : el('pre', 'result', call.resultJson !== undefined ? JSON.stringify(call.resultJson) : call.result));
+  box.append(result);
+
+  const checks = el('div');
+  checks.append(el('h4', null, 'Checks'));
+  const list = el('ul', 'checks');
+  for (const check of call.checks) {
+    const word = check.outcome === 'fail' ? 'Failed' : check.outcome === 'unchecked' ? 'Not checked' : 'Passed';
+    const item = el('li');
+    const label = el('span', null, check.label);
+    if (check.detail && check.id !== 'tool_error') label.append(el('span', 'hint', ` ${check.detail}`));
+    item.append(el('span', `v ${check.outcome === 'fail' ? 'bad' : check.outcome === 'unchecked' ? 'unk' : ''}`, word), label);
+    list.append(item);
+  }
+  checks.append(list);
+  box.append(checks);
+
+  const foot = el('div', 'foot');
+  if (times > 1) foot.append(el('span', null, `called ${times} times with these arguments`));
+  if (call.llm) {
+    foot.append(el('span', null, `${call.llm.tokens.input.toLocaleString()} tokens in, ${call.llm.tokens.output.toLocaleString()} out`));
+    if (call.llm.finishReason) foot.append(el('span', null, call.llm.finishReason === 'tool_calls' ? 'stopped for a tool call' : `stopped: ${call.llm.finishReason}`));
+    if (call.llm.modelVersion || call.llm.model) foot.append(el('span', null, call.llm.modelVersion ?? call.llm.model));
+  }
+  if (foot.childElementCount) box.append(foot);
+  return box;
+}
+
+function callRow(call, times = 1) {
+  const status = callStatus(call);
+  const row = el('details', `call${status.bad ? ' bad' : ''}`);
+  const summary = el('summary');
+  const name = el('span', 'name', call.name);
+  name.append(document.createTextNode(' '), el('span', 'args', keyArgs(call)));
+  const end = el('span', 'end');
+  if (times > 1) end.append(el('span', 'times', `×${times}`));
+  end.append(el('span', 'dur', seconds(call.calledAt, call.resultAt)));
+  summary.append(el('span', 'call-chev', '›'), el('span', `status${status.bad ? ' bad' : status.word === 'Repeat' ? ' warn' : ''}`, status.word), name, end);
+  row.append(summary);
+  // Built when first opened: most calls are never expanded.
+  row.addEventListener('toggle', () => {
+    if (row.open && !row.querySelector('.detail')) row.append(callDetail(call, times));
+  });
+  return row;
+}
+
+/** One input's calls. Identical calls fold into ×N; three or more rows become a group that opens itself on a failure. */
+function callsBlock(calls) {
+  const folded = [];
+  const bySignature = new Map();
+  for (const call of calls) {
+    const signature = `${call.name}\u0000${call.argsRaw}`;
+    const same = bySignature.get(signature);
+    if (same) same.times++;
+    else {
+      const entry = { call, times: 1 };
+      bySignature.set(signature, entry);
+      folded.push(entry);
+    }
+  }
+  const block = el('div', 'calls');
+  if (folded.length < 3) {
+    for (const entry of folded) block.append(callRow(entry.call, entry.times));
+    return block;
+  }
+  const failed = folded.filter((entry) => callStatus(entry.call).bad).length;
+  const repeated = calls.length - folded.length;
+  const group = el('details', `call group${failed ? ' bad' : ''}`);
+  group.open = failed > 0;
+  const summary = el('summary');
+  const label = [`${calls.length} tool calls`, repeated ? `${repeated} repeated` : '', failed ? `${failed} failed` : ''].filter(Boolean).join(', ');
+  const end = el('span', 'end');
+  end.append(el('span', 'dur', seconds(calls[0].calledAt, calls.at(-1).resultAt)));
+  summary.append(el('span', 'call-chev', '›'), el('span', `status${failed ? ' bad' : ''}`, failed ? 'Failed' : 'OK'), el('span', 'name', label), end);
+  const inner = el('div', 'inner');
+  for (const entry of folded) inner.append(callRow(entry.call, entry.times));
+  group.append(summary, inner);
+  block.append(group);
+  return block;
+}
+
+function turnRow(turn, preamble = false) {
+  const row = el('div', `turn ${turn.role}${turn.tool ? ' tool' : ''}${preamble ? ' preamble' : ''}`);
+  row.append(
+    el('span', 'who', turn.tool ? 'Tool' : turn.role === 'user' ? 'User' : turn.role === 'agent' ? 'Agent' : ''),
+    el('span', null, turn.tool ? turn.text.replace(/^\[|\]$/g, '') : turn.text),
+  );
+  return row;
+}
+
+function renderTranscript(session) {
+  const transcript = $('session-transcript');
+  transcript.replaceChildren();
+  // Sessions scored before tool calls had records carry them as lines in the transcript itself.
+  const timeline = session.timeline ?? JSON.parse(session.transcript).map((turn) => ({ kind: 'turn', turn }));
+  timeline.forEach((item, index) => {
+    if (item.kind === 'calls') {
+      transcript.append(callsBlock(item.calls));
+      return;
+    }
+    // What the agent said just before calling reached the customer on its own; it reads as a lead-in.
+    const next = timeline[index + 1];
+    const preamble = item.turn.role === 'agent' && next?.kind === 'calls' && next.inputId === item.turn.inputId;
+    transcript.append(turnRow(item.turn, preamble));
+  });
+}
+
+/** In place of scores: why there are none, and what happens next. */
+function notScored(session) {
+  const box = el('div', 'notscored');
+  if (!session.error) {
+    box.append(el('strong', null, 'Not scored'), el('p', null, session.unscoreable));
+    return box;
+  }
+  const attempts = session.attempts ?? 1;
+  box.append(
+    el('strong', null, 'Not scored yet'),
+    el('p', null, `Scoring failed: ${session.error}`),
+    el('p', null, attempts < 3
+      ? `Tried ${attempts} of 3 times. The next collection tries again.`
+      : 'Tried 3 times, so it won’t be retried on its own.'),
+  );
+  if (session.agentId) {
+    const retry = el('button', 'btn ghost', 'Score it now');
+    retry.type = 'button';
+    retry.addEventListener('click', async () => {
+      retry.disabled = true;
+      retry.textContent = 'Scoring…';
+      try {
+        await json(`/api/agents/${encodeURIComponent(session.agentId)}/retry`, {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: session.sessionId }),
+        });
+        openSession(await json(`/api/sessions/${encodeURIComponent(session.sessionId)}?agentId=${encodeURIComponent(session.agentId)}`));
+      } catch (error) {
+        retry.disabled = false;
+        retry.textContent = 'Score it now';
+        box.append(el('p', 'flagc', error.message));
+      }
+    });
+    box.append(retry);
+  }
+  return box;
+}
+
+function openSession(session) {
+  const calls = session.toolCalls?.length ?? 0;
   const meta = $('session-meta');
   meta.replaceChildren(
     document.createTextNode(`${session.sessionId.slice(0, 8)} `),
     channelChip(session),
     document.createTextNode(
-      ` · ${session.turns} turns · ${session.endpointLabel}` +
-        (session.chunks > 1 ? ` · split into ${session.chunks} chunks` : ''),
+      ` ${session.turns} turns, ${session.endpointLabel}` +
+        (calls ? `, ${calls} tool call${calls === 1 ? '' : 's'}` : '') +
+        (session.chunks > 1 ? `, split into ${session.chunks} chunks` : ''),
     ),
   );
 
-  const transcript = $('session-transcript');
-  transcript.replaceChildren();
-  for (const turn of JSON.parse(session.transcript)) {
-    const row = el('div', `turn ${turn.role}${turn.tool ? ' tool' : ''}`);
-    row.append(
-      el('span', 'who', turn.tool ? 'Tool' : turn.role === 'user' ? 'User' : turn.role === 'agent' ? 'Agent' : ''),
-      el('span', null, turn.tool ? turn.text.replace(/^\[|\]$/g, '') : turn.text),
-    );
-    transcript.append(row);
-  }
+  renderTranscript(session);
 
   const panel = $('session-rubrics');
   panel.replaceChildren();
+  if (session.error || session.unscoreable) {
+    panel.append(notScored(session));
+    openSessionDrawer();
+    return;
+  }
 
   for (const rubric of state.rubrics) {
     const result = session.results[rubric.id];

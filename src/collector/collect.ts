@@ -18,6 +18,9 @@ import { agentRunRequest, resolveEndpoints } from '../agents/service.ts';
 import { executeRun } from '../scoring/run.ts';
 import { evaluateAlerts } from '../alerts/engine.ts';
 import { deliverAlert, type Notifier } from '../alerts/deliver.ts';
+import { reconstruct } from '../traces/reconstruct.ts';
+import { checkSession, checkToolCalls } from '../checks/exact.ts';
+import type { Turn } from '../cognigy/transcript.ts';
 
 /** A session quiet this long is taken to be over. */
 export const SETTLE_MINUTES = 10;
@@ -57,6 +60,29 @@ export interface CollectReport {
   error?: string;
 }
 
+/**
+ * Builds tool call records and checks for sessions scored before they existed,
+ * from the logs already stored. Costs no Jev calls, and each session is done
+ * once: afterwards it has checks.
+ */
+export function backfillToolCalls(agentId: string, store: Store): number {
+  let rebuilt = 0;
+  for (const session of store.agentSessions(agentId)) {
+    if (session.checks || session.error) continue;
+    const traces = store.tracesFor(agentId, session.sessionId);
+    const trace = traces.length ? reconstruct(traces) : undefined;
+    if (trace) {
+      checkToolCalls(trace.toolCalls, trace.tools);
+      store.saveToolCalls(agentId, session.sessionId, trace.toolCalls);
+    }
+    // Older transcripts carry tool lines of their own; the checks read the conversation alone.
+    const turns = (JSON.parse(session.transcript) as Turn[]).filter((turn) => !turn.tool);
+    store.setSessionChecks(session.runId, session.sessionId, JSON.stringify(checkSession(turns, trace)));
+    rebuilt++;
+  }
+  return rebuilt;
+}
+
 export async function collectAgent(agentId: string, deps: CollectDeps, now: Date = new Date()): Promise<CollectReport> {
   const { store } = deps;
   const stored = store.agent(agentId);
@@ -76,6 +102,7 @@ export async function collectAgent(agentId: string, deps: CollectDeps, now: Date
       report.warnings.push(`could not re-read endpoints: ${error instanceof Error ? error.message : String(error)}`);
     }
 
+    backfillToolCalls(agentId, store);
     const rubrics = store.rubrics();
     const retrySessionIds = store.failedSessions(agentId)
       .filter((failure) => failure.attempts < MAX_ATTEMPTS)

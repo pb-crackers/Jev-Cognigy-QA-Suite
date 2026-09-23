@@ -117,6 +117,7 @@ function fleetRow(entry) {
   status.push(traces.traces ? count(traces.traces, 'logged LLM call') : agent.trace.installs.length ? 'logging on, nothing received yet' : 'logging off');
   facts.append(el('span', 'hint', status.join(', ')));
   if (state.lastError) facts.append(el('span', 'flagc', `Last collection failed: ${state.lastError}`));
+  if (entry.dataProblems) facts.append(el('span', 'flagc', `${count(entry.dataProblems, 'data problem')}, open the agent to see ${entry.dataProblems === 1 ? 'it' : 'them'}`));
 
   row.append(who, healthFigure(health), facts);
   row.addEventListener('click', () => openAgent(agent.id));
@@ -308,6 +309,9 @@ function renderAgent() {
   page.append(section('Failing sessions', failingList(detail), detail.failing.length ? 'worst first' : undefined));
   page.append(section('Alerts', alertTable(alerts, false)));
   page.append(section('Coverage', coveragePanel(agent, coverage), 'instructions no rubric specifically checks'));
+  page.append(watch.current.data.problems
+    ? section('Data', dataSection(watch.current.data), `what the scores rest on, ${dataSummary(watch.current.data)}`)
+    : folded('Data', dataSection(watch.current.data), dataSummary(watch.current.data)));
   page.append(folded('LLM logging', loggingPanel(agent, traces),
     traces.traces ? count(traces.traces, 'logged call') : agent.trace.installs.length ? 'on, nothing received yet' : 'off'));
   page.append(folded('Settings', settingsPanel(agent),
@@ -399,17 +403,79 @@ function failingList(detail) {
       el('span', `score ${band(item.composite).cls}`, pct(item.composite)),
       el('span', 'hint', item.worst.slice(0, 3).map((id) => names.get(id) ?? id).join(', ') || '—'),
     );
-    row.addEventListener('click', async () => {
-      try {
-        const session = await json(`/api/sessions/${encodeURIComponent(item.sessionId)}?agentId=${encodeURIComponent(watch.current.agent.id)}`);
-        window.dispatchEvent(new CustomEvent('open-session', { detail: session }));
-      } catch (error) {
-        notice('agent-notice', error.message);
-      }
-    });
+    row.addEventListener('click', () => void openSessionById(item.sessionId));
     list.append(row);
   }
   return list;
+}
+
+/** Opens one of the current agent's sessions in the session drawer. */
+async function openSessionById(sessionId) {
+  try {
+    const session = await json(`/api/sessions/${encodeURIComponent(sessionId)}?agentId=${encodeURIComponent(watch.current.agent.id)}`);
+    window.dispatchEvent(new CustomEvent('open-session', { detail: session }));
+  } catch (error) {
+    notice('agent-notice', error.message);
+  }
+}
+
+/** A link that opens a session, written as the sentence it sits in needs. */
+function sessionLink(sessionId, text) {
+  const link = el('button', 'link', text);
+  link.type = 'button';
+  link.addEventListener('click', () => void openSessionById(sessionId));
+  return link;
+}
+
+/**
+ * Whether the scores can be trusted: what they rest on, and what went wrong
+ * getting there. Open only when something did.
+ */
+function dataSection(data) {
+  const list = el('ul', 'data-health');
+  const line = (key, bad, ...value) => {
+    const item = el('li');
+    const v = el('span', `v${bad ? ' bad' : ''}`);
+    v.append(...value.map((part) => (typeof part === 'string' ? document.createTextNode(part) : part)));
+    item.append(el('span', 'k', key), v);
+    list.append(item);
+  };
+  const num = (n) => el('span', 'num', String(n));
+  const scored = data.sessions - data.failed.count;
+
+  const { full, partial, none } = data.logged;
+  line('LLM calls logged', false, num(full), ` of ${scored} session${scored === 1 ? '' : 's'} fully logged`,
+    partial ? `, ${partial} partly` : '', none ? `, ${none} not at all` : '',
+    partial || none ? '. Rubrics that need the logs were left out where they were missing.' : '.');
+
+  if (data.failed.count) {
+    const latest = data.failed.latest[0];
+    line("Couldn't score", true, num(data.failed.count), ` session${data.failed.count === 1 ? '' : 's'}. Latest: ${latest.error.replace(/\.?$/, '.')} `,
+      sessionLink(latest.sessionId, latest.attempts < 3 ? 'Retrying' : 'Tried 3 times, open it'), '.');
+  } else {
+    line("Couldn't score", false, num(0), '. Every session was scored.');
+  }
+
+  if (data.drift.sessions) {
+    const paths = data.drift.paths.slice(0, 3);
+    line('Unexpected payloads', true, num(data.drift.sessions), ` session${data.drift.sessions === 1 ? '' : 's'} had fields in a new shape: `,
+      ...paths.flatMap((path, index) => [el('code', null, path), index < paths.length - 1 ? ', ' : '']),
+      data.drift.paths.length > 3 ? ` and ${data.drift.paths.length - 3} more` : '', '. They were read as missing, not guessed at.');
+  }
+
+  if (data.gaps.sessions) {
+    line('Missing turns', true, num(data.gaps.sessions), ` session${data.gaps.sessions === 1 ? ' has' : 's have'} logged replies the transcript lacks, starting with `,
+      sessionLink(data.gaps.sessionIds[0], shortId(data.gaps.sessionIds[0])), '.');
+  } else {
+    line('Missing turns', false, num(0), '. Every logged reply is in the transcript.');
+  }
+  return list;
+}
+
+function dataSummary(data) {
+  if (data.problems) return count(data.problems, 'problem');
+  if (data.sessions === 0) return 'nothing collected yet';
+  return 'every session scored, nothing missing';
 }
 
 function loggingPanel(agent, traces) {

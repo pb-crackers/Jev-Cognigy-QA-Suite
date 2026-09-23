@@ -24,9 +24,13 @@ export type CheckOutcome = 'pass' | 'fail' | 'unchecked';
 
 export interface CheckResult {
   id: string;
+  /** What the check asks, in words, as the session view lists it. */
+  label: string;
   outcome: CheckOutcome;
   /** What was found, in words — shown beside the verdict. */
   detail?: string;
+  /** For the schema check: each problem with the argument it concerns. */
+  issues?: { path: string; message: string }[];
 }
 
 export interface ToolCallRecord {

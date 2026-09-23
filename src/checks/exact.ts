@@ -53,38 +53,38 @@ export function checkToolCalls(records: ToolCallRecord[], tools: SessionTrace['t
     const definition = record.definition ?? tools.find((tool) => tool.name === record.name);
 
     if (record.args === null) {
-      checks.push({ id: 'args_parse', outcome: 'fail', detail: 'the model wrote arguments that are not a JSON object' });
+      checks.push({ id: 'args_parse', label: CALL_CHECKS.args_parse, outcome: 'fail', detail: 'the model wrote arguments that are not a JSON object' });
     } else {
-      checks.push({ id: 'args_parse', outcome: 'pass' });
+      checks.push({ id: 'args_parse', label: CALL_CHECKS.args_parse, outcome: 'pass' });
     }
 
     checks.push(definition
-      ? { id: 'known_tool', outcome: 'pass' }
-      : { id: 'known_tool', outcome: tools.length ? 'fail' : 'unchecked', detail: tools.length ? `the agent had no tool called ${record.name}` : 'no tool definitions were logged' });
+      ? { id: 'known_tool', label: CALL_CHECKS.known_tool, outcome: 'pass' }
+      : { id: 'known_tool', label: CALL_CHECKS.known_tool, outcome: tools.length ? 'fail' : 'unchecked', detail: tools.length ? `the agent had no tool called ${record.name}` : 'no tool definitions were logged' });
 
     if (record.args === null || !definition?.parameters) {
-      checks.push({ id: 'schema', outcome: 'unchecked', detail: record.args === null ? 'arguments could not be read' : 'the tool has no schema' });
+      checks.push({ id: 'schema', label: CALL_CHECKS.schema, outcome: 'unchecked', detail: record.args === null ? 'arguments could not be read' : 'the tool has no schema' });
     } else {
       const { issues, unchecked } = validateArgs(record.args, definition.parameters);
       checks.push(issues.length
-        ? { id: 'schema', outcome: 'fail', detail: issues.map((issue) => issue.message).join('; ') }
-        : { id: 'schema', outcome: 'pass', ...(unchecked.length ? { detail: `not checked: ${unchecked.join(', ')}` } : {}) });
+        ? { id: 'schema', label: CALL_CHECKS.schema, outcome: 'fail', detail: issues.map((issue) => issue.message).join('; '), issues }
+        : { id: 'schema', label: CALL_CHECKS.schema, outcome: 'pass', ...(unchecked.length ? { detail: `not checked: ${unchecked.join(', ')}` } : {}) });
     }
 
     if (record.result === undefined) {
-      checks.push({ id: 'has_result', outcome: 'fail', detail: 'no result was logged for this call' });
-      checks.push({ id: 'tool_error', outcome: 'unchecked', detail: 'no result to read' });
+      checks.push({ id: 'has_result', label: CALL_CHECKS.has_result, outcome: 'fail', detail: 'no result was logged for this call' });
+      checks.push({ id: 'tool_error', label: CALL_CHECKS.tool_error, outcome: 'unchecked', detail: 'no result to read' });
     } else {
-      checks.push({ id: 'has_result', outcome: 'pass' });
+      checks.push({ id: 'has_result', label: CALL_CHECKS.has_result, outcome: 'pass' });
       const failure = toolFailure(record);
-      checks.push(failure ? { id: 'tool_error', outcome: 'fail', detail: failure } : { id: 'tool_error', outcome: 'pass' });
+      checks.push(failure ? { id: 'tool_error', label: CALL_CHECKS.tool_error, outcome: 'fail', detail: failure } : { id: 'tool_error', label: CALL_CHECKS.tool_error, outcome: 'pass' });
     }
 
     const key = signature(record);
     const first = seen.get(key);
     checks.push(first === undefined
-      ? { id: 'repeat', outcome: 'pass' }
-      : { id: 'repeat', outcome: 'fail', detail: `the same call as #${first}` });
+      ? { id: 'repeat', label: CALL_CHECKS.repeat, outcome: 'pass' }
+      : { id: 'repeat', label: CALL_CHECKS.repeat, outcome: 'fail', detail: `the same call as #${first}` });
     if (first === undefined) seen.set(key, record.seq);
 
     record.checks = checks;
