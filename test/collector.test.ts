@@ -55,7 +55,7 @@ function feed(sessions: { id: string; startedAt: string; lastAt: string; masked?
   };
 }
 
-const cognigy = { async endpoints() { return [{ id: 'e', name: 'REST' }]; } };
+const cognigy = { async endpoints() { return [{ id: 'e', name: 'REST' }]; }, async flows() { return []; } };
 
 function setup() {
   const store = new Store(':memory:');

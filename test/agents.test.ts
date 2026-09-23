@@ -90,6 +90,14 @@ describe('agent traffic filter', () => {
     assert.equal(endpointClause([], true), 'endpointName eq null');
   });
 
+  it('takes only panel sessions from the agent\'s own Flows', () => {
+    assert.equal(
+      endpointClause(['REST'], true, ['Main', 'Sub']),
+      "(endpointName eq 'REST' or (endpointName eq null and (flowName eq 'Main' or flowName eq 'Sub')))",
+    );
+    assert.equal(endpointClause([], true, ['Main']), "(endpointName eq null and flowName eq 'Main')");
+  });
+
   it('has no traffic at all without endpoints or the panel', () => {
     assert.equal(endpointClause([], false), null);
   });

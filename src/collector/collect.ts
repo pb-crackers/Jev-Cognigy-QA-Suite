@@ -27,7 +27,7 @@ export const FIRST_LOOKBACK_HOURS = 24;
 export const BATCH_LIMIT = 200;
 
 export interface CollectDeps {
-  api: Pick<CognigyApi, 'endpoints'>;
+  api: Pick<CognigyApi, 'endpoints' | 'flows'>;
   odata: OdataClient;
   store: Store;
   notifier?: Notifier;

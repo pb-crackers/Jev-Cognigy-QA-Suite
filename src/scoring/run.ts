@@ -39,6 +39,7 @@ export interface RunRequest {
   /** An agent's endpoints by name; overrides `endpointName`. */
   endpointNames?: readonly string[];
   includePanel?: boolean;
+  panelFlowNames?: readonly string[];
   /**
    * Restricts the run to these rubrics — an agent's set. Omitted means every
    * enabled rubric, as an ad-hoc run has always done.
@@ -230,6 +231,7 @@ export async function executeRun(
     endpointName: request.endpointName,
     endpointNames: request.endpointNames,
     includePanel: request.includePanel,
+    panelFlowNames: request.panelFlowNames,
     oldestFirst: request.oldestFirst,
     channels: request.channels,
     limit: request.limit,

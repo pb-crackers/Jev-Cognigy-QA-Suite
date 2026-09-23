@@ -29,6 +29,17 @@ import {
   briefing, buildReport, completeRubric, resolveProject, score, validateRubric,
 } from '../src/headless.ts';
 import type { Rubric } from '../src/rubrics/model.ts';
+import { Scheduler } from '../src/collector/scheduler.ts';
+import type { CollectReport } from '../src/collector/collect.ts';
+import { daemonStatus, installDaemon, uninstallDaemon } from '../src/collector/launchd.ts';
+import { AgentError, createAgent, updateAgent } from '../src/agents/service.ts';
+import { suggestAgents } from '../src/agents/suggest.ts';
+import { installLogging, loggingStatus, uninstallLogging } from '../src/agents/logging.ts';
+import { collectAgent } from '../src/collector/collect.ts';
+import { computeHealth, WINDOW_DAYS, type HealthWindow } from '../src/health/health.ts';
+import { checkCoverage } from '../src/validity/coverage.ts';
+import { checkValidity } from '../src/validity/validity.ts';
+import { importTraces } from '../src/traces/receiver.ts';
 
 // Load .env ourselves so every command works as a bare invocation from any
 // directory. Requiring `--env-file` is friction for a person and a trap for an
@@ -157,7 +168,23 @@ async function init(): Promise<void> {
   console.log('  ' + dim('Run') + ' npx jev-cognigy-qa ' + dim('to start.') + '\n');
 }
 
-function start(): void {
+/** One line per collection, so the watch log reads as a history of what happened. */
+function logCollection(report: CollectReport): void {
+  const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const parts = [
+    `${report.scored} scored`, report.deferred ? `${report.deferred} in progress` : '',
+    report.alertsFired ? `${report.alertsFired} alert(s)` : '', report.backlog ? 'more to catch up' : '',
+    ...report.warnings,
+  ].filter(Boolean);
+  console.log(`  ${dim(stamp)} ${report.agentId}: ${report.error ? red('failed: ' + report.error) : parts.join(', ')}`);
+}
+
+/**
+ * The app and the monitor are one process: the web UI, the webhook Cognigy
+ * posts to, and the collector loop. `watch` is the same without opening a
+ * browser, which is what the background service runs.
+ */
+function start(options: { openBrowser: boolean } = { openBrowser: true }): void {
   let deps;
   try {
     deps = buildDeps();
@@ -167,11 +194,19 @@ function start(): void {
     return;
   }
 
+  const scheduler = new Scheduler(
+    { api: deps.api, odata: deps.odata, store: deps.store, appUrl: 'http://localhost:' + PORT },
+    logCollection,
+  );
   const rubrics = deps.store.rubrics().length;
-  createApp(deps).listen(PORT, () => {
+  const agents = deps.store.agents().length;
+  createApp({ ...deps, scheduler }).listen(PORT, () => {
     const url = 'http://localhost:' + PORT;
-    console.log('\n  ' + bold('Jev Cognigy QA') + ' ' + dim('- ' + rubrics + ' rubrics loaded'));
-    console.log('  ' + green('->') + ' ' + url + '\n');
+    console.log('\n  ' + bold('Jev Cognigy QA') + ' ' + dim(`- ${rubrics} rubrics, ${agents} agent(s) watched`));
+    console.log('  ' + green('->') + ' ' + url);
+    console.log('  ' + dim('webhook  ') + (deps.config.publicUrl ? deps.config.publicUrl + '/hook/<agent>' : dim('set AGENT_WATCH_PUBLIC_URL to receive LLM logs')) + '\n');
+    scheduler.start();
+    if (!options.openBrowser) return;
     // Best effort: failing to open a browser must not stop the server.
     const opener = process.platform === 'darwin'
       ? 'open'
@@ -379,7 +414,123 @@ async function headless(command: string, argv: string[]): Promise<void> {
     return out(buildReport(runId, headlessDeps));
   }
 
+  if (command === 'agents') {
+    const window = asWindow(flags.window);
+    return out(store.agents().map((agent) => {
+      const health = computeHealth(agent, store.rubrics(), store, window);
+      return {
+        id: agent.id, name: agent.name, enabled: agent.enabled, endpoints: agent.endpoints.map((e) => e.name),
+        includePanel: agent.includePanel, intervalMinutes: agent.intervalMinutes,
+        health: health.health, interval: health.interval, sessions: health.sessions, reportable: health.reportable,
+        alerts: health.alerts, state: store.agentState(agent.id), loggingInstalled: agent.trace.installs.length,
+      };
+    }));
+  }
+
+  if (command === 'agent') return agentCommand(argv, flags, { api, odata, store, config });
+
+  if (command === 'alerts') {
+    return out(store.alerts({ agentId: flags.agent ? String(flags.agent) : undefined, limit: 100 }));
+  }
+
+  if (command === 'validity') {
+    const { reports, ledger } = await checkValidity(store, store.rubrics(), { stability: Boolean(flags.stability) });
+    return out({ costUsd: ledger.totals().costUsd, reports: reports.map((report) => ({
+      rubric: report.rubricId, validity: Number(report.validity.toFixed(3)), stability: report.stability, warnings: report.warnings,
+    })) });
+  }
+
+  if (command === 'trace') {
+    if (argv[0] !== 'import') return fail('usage: trace import <agentId> --file <path>');
+    const agentId = argv[1];
+    if (!agentId || !flags.file) return fail('usage: trace import <agentId> --file <path>');
+    return out(importTraces(store, agentId, JSON.parse(await readFile(String(flags.file), 'utf8'))));
+  }
+
+  if (command === 'daemon') {
+    const action = argv[0];
+    if (action === 'install') return out({ installed: await installDaemon(PACKAGE_ROOT) });
+    if (action === 'uninstall') return out({ removed: await uninstallDaemon() });
+    if (action === 'status' || !action) return out(await daemonStatus());
+    return fail('usage: daemon install | uninstall | status');
+  }
+
   fail('unknown command "' + command + '"');
+}
+
+function asWindow(value: unknown): HealthWindow {
+  return typeof value === 'string' && value in WINDOW_DAYS ? (value as HealthWindow) : '24h';
+}
+
+async function agentCommand(
+  argv: string[],
+  flags: Record<string, unknown>,
+  deps: { api: ReturnType<typeof buildDeps>['api']; odata: ReturnType<typeof buildDeps>['odata']; store: ReturnType<typeof buildDeps>['store']; config: ReturnType<typeof buildDeps>['config'] },
+): Promise<void> {
+  const { api, odata, store, config } = deps;
+  const [action, id] = argv;
+  const need = () => {
+    const agent = id ? store.agent(id) : undefined;
+    if (!agent) throw new AgentError([id ? `no agent "${id}"` : 'an agent id is required']);
+    return agent;
+  };
+
+  try {
+    if (action === 'suggest') {
+      const needle = String(flags.project ?? '');
+      if (!needle) return fail('--project is required');
+      const project = await resolveProject(api, needle);
+      return out({ project, suggestions: await suggestAgents(api, project.id, store.agents()) });
+    }
+    if (action === 'add') {
+      // From a suggestion id (`--project X --suggestion summit-ridge`) or from JSON.
+      if (flags.suggestion) {
+        const project = await resolveProject(api, String(flags.project ?? ''));
+        const suggestion = (await suggestAgents(api, project.id, store.agents())).find((s) => s.id === flags.suggestion);
+        if (!suggestion) return fail(`no suggestion "${flags.suggestion}" for ${project.name}`);
+        return out(createAgent({ name: suggestion.name, projectId: project.id, projectName: project.name,
+          endpoints: suggestion.endpoints, includePanel: Boolean(flags.panel) }, store, store.rubrics()));
+      }
+      const json = flags.file ? await readFile(String(flags.file), 'utf8') : String(flags.json ?? '');
+      if (!json) return fail('agent add needs --suggestion <id> --project <name>, or --json / --file');
+      return out(createAgent(JSON.parse(json), store, store.rubrics()));
+    }
+    if (action === 'edit') {
+      need();
+      return out(updateAgent(id, JSON.parse(String(flags.json ?? '{}')), store));
+    }
+    if (action === 'rm') {
+      const agent = need();
+      if (agent.trace.installs.length && !flags['keep-logging']) {
+        const { report } = await uninstallLogging(agent, api, store);
+        if (report.failed.length) return fail('could not remove logging from every node; agent kept');
+      }
+      store.deleteAgent(agent.id);
+      return out({ deleted: agent.id });
+    }
+    if (action === 'collect') {
+      need();
+      return out(await collectAgent(id, { api, odata, store }));
+    }
+    if (action === 'health') {
+      return out(computeHealth(need(), store.rubrics(), store, asWindow(flags.window)));
+    }
+    if (action === 'logging') {
+      const agent = need();
+      if (flags.install || flags['take-over']) {
+        return out((await installLogging(agent, api, store, { publicUrl: config.publicUrl, takeOver: Boolean(flags['take-over']) })).report);
+      }
+      if (flags.uninstall) return out((await uninstallLogging(agent, api, store)).report);
+      return out({ nodes: await loggingStatus(agent, api), installs: agent.trace.installs });
+    }
+    if (action === 'coverage') {
+      return out(await checkCoverage(need(), store.rubrics(), store));
+    }
+    return fail('usage: agent suggest|add|edit|rm|collect|health|logging|coverage');
+  } catch (error) {
+    if (error instanceof AgentError) return fail(error.message);
+    throw error;
+  }
 }
 
 const USAGE = `
@@ -400,15 +551,36 @@ const USAGE = `
                                       what channels are present, and how many sessions
     report [<runId>]                  a previous run, or list runs
     brief [<runId>]                   synthesised findings as markdown, for an agent
+
+  Agent Watch:
+    watch                             run the UI, webhook and collector without a browser
+    agents [--window 24h|7d|30d]      every watched agent with its health
+    agent suggest --project <name>    agents proposed from the project's endpoints
+    agent add --project <name> --suggestion <id> [--panel]
+    agent add --json <json>           or define one by hand
+    agent edit <id> --json <json>     change switches, endpoints, interval, alerts
+    agent rm <id> [--keep-logging]    remove an agent, taking its logging out first
+    agent collect <id>                collect and score now
+    agent health <id> [--window 7d]   health, per-rubric pass rates, failing sessions
+    agent logging <id> [--install | --take-over | --uninstall]
+                                      LLM logging on the agent's Cognigy nodes
+    agent coverage <id>               instructions no rubric checks
+    alerts [--agent <id>]             alerts that fired
+    validity [--stability]            check every rubric; --stability re-asks sessions
+    trace import <agentId> --file <path>
+                                      load logged LLM calls captured elsewhere
+    daemon install|uninstall|status   keep the monitor running in the background (macOS)
 `;
 
 const [command, ...rest] = process.argv.slice(2);
 const HEADLESS = new Set([
   'projects', 'endpoints', 'channels', 'rubrics', 'rubric', 'score', 'report', 'brief',
+  'agents', 'agent', 'alerts', 'validity', 'trace', 'daemon',
 ]);
 
 if (command === 'init') await init();
 else if (!command) start();
+else if (command === 'watch') start({ openBrowser: false });
 else if (HEADLESS.has(command)) await headless(command, rest);
 else if (command === 'help' || command === '--help') console.log(USAGE);
 else {

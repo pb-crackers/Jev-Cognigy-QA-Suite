@@ -48,6 +48,11 @@ export interface Agent {
    * score that mostly describes developers testing is not a health score.
    */
   includePanel: boolean;
+  /**
+   * Names of the Flows the agent's endpoints enter, re-read on every collection.
+   * They decide which Interaction Panel sessions are this agent's.
+   */
+  flowNames?: string[];
   /** Explicit per-rubric switches. A rubric absent here follows `defaultOn`. */
   rubrics: Record<string, boolean>;
   /** Watched by the collector. */

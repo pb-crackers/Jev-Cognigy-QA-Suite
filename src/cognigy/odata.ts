@@ -43,11 +43,26 @@ function odataString(value: string): string {
  * OData rejects. `null` means the agent has no traffic at all, and the caller
  * should not query.
  */
-export function endpointClause(names: readonly string[], includePanel: boolean): string | null {
+export function endpointClause(
+  names: readonly string[],
+  includePanel: boolean,
+  panelFlows: readonly string[] = [],
+): string | null {
   const clauses = [...new Set(names.map((name) => name.trim()).filter(Boolean))].map(
     (name) => `endpointName eq ${odataString(name)}`,
   );
-  if (includePanel) clauses.push('endpointName eq null');
+  if (includePanel) {
+    // Panel sessions have no endpoint to tell them apart, so without a Flow
+    // restriction "include the panel" would take every developer test in the
+    // project, whichever bot it was testing.
+    const flows = [...new Set(panelFlows.map((flow) => flow.trim()).filter(Boolean))].map(
+      (flow) => `flowName eq ${odataString(flow)}`,
+    );
+    clauses.push(
+      flows.length === 0 ? 'endpointName eq null'
+        : `(endpointName eq null and ${flows.length === 1 ? flows[0] : `(${flows.join(' or ')})`})`,
+    );
+  }
   if (clauses.length === 0) return null;
   return clauses.length === 1 ? clauses[0] : `(${clauses.join(' or ')})`;
 }
@@ -153,6 +168,8 @@ export class OdataClient {
      */
     endpointNames?: readonly string[];
     includePanel?: boolean;
+    /** The agent's Flows, which restrict which Interaction Panel sessions are its own. */
+    panelFlowNames?: readonly string[];
     /**
      * Walk oldest-first. Catch-up after a gap has to process sessions in the
      * order they happened, or the watermark would jump past unprocessed ones.
@@ -166,7 +183,7 @@ export class OdataClient {
       `timestamp le ${options.to}`,
     ];
     if (options.endpointNames) {
-      const traffic = endpointClause(options.endpointNames, options.includePanel ?? false);
+      const traffic = endpointClause(options.endpointNames, options.includePanel ?? false, options.panelFlowNames);
       if (!traffic) return [];
       clauses.push(traffic);
     } else if (options.endpointName === null) clauses.push('endpointName eq null');
