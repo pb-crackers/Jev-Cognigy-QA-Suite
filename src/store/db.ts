@@ -481,6 +481,81 @@ export class Store {
     };
   }
 
+  // ---- validity and coverage ----
+
+  /** The newest answer per session for one rubric, across every run. */
+  resultsForRubric(rubricId: string): ResultRow[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT r.* FROM result r JOIN run ru ON ru.id = r.run_id
+         WHERE r.rubric_id = ? ORDER BY ru.started_at ASC`,
+      )
+      .all(rubricId) as Record<string, never>[];
+    const latest = new Map<string, ResultRow>();
+    for (const row of rows) {
+      latest.set(row.session_id, {
+        runId: row.run_id, sessionId: row.session_id, rubricId: row.rubric_id, raw: row.raw,
+        confidence: row.confidence, chunks: row.chunks, decidedBy: row.decided_by,
+      });
+    }
+    return [...latest.values()];
+  }
+
+  /** Recent single-chunk scored sessions with the agent they were collected for, for re-asking. */
+  recentSessions(limit: number): (SessionRow & { agentId: string | null })[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT s.*, r.agent_id AS run_agent_id FROM session s JOIN run r ON r.id = s.run_id
+         WHERE s.unscoreable IS NULL AND s.chunks = 1
+         ORDER BY r.started_at DESC LIMIT ?`,
+      )
+      .all(Math.max(limit * 4, limit)) as Record<string, never>[];
+    const seen = new Set<string>();
+    const out: (SessionRow & { agentId: string | null })[] = [];
+    for (const row of rows) {
+      if (seen.has(row.session_id)) continue;
+      seen.add(row.session_id);
+      out.push({
+        runId: row.run_id, sessionId: row.session_id, startedAt: row.started_at,
+        endpointLabel: row.endpoint_label, channel: row.channel, channelLabel: row.channel_label,
+        flowName: row.flow_name, turns: row.turns, chunks: row.chunks, rating: row.rating,
+        ratingComment: row.rating_comment, unscoreable: row.unscoreable, transcript: row.transcript,
+        costUsd: row.cost_usd, ms: row.ms, lastAt: row.last_at ?? null, traceCoverage: row.trace_coverage ?? null,
+        agentId: row.run_agent_id ?? null,
+      });
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+
+  saveValidity(rubricId: string, report: unknown, computedAt: string): void {
+    this.#db
+      .prepare(
+        `INSERT INTO validity (rubric_id, json, computed_at) VALUES (?, ?, ?)
+         ON CONFLICT(rubric_id) DO UPDATE SET json = excluded.json, computed_at = excluded.computed_at`,
+      )
+      .run(rubricId, JSON.stringify(report), computedAt);
+  }
+
+  validityReports<T>(): Map<string, T> {
+    const rows = this.#db.prepare('SELECT rubric_id, json FROM validity').all() as { rubric_id: string; json: string }[];
+    return new Map(rows.map((row) => [row.rubric_id, JSON.parse(row.json) as T]));
+  }
+
+  saveCoverage(agentId: string, report: unknown, computedAt: string): void {
+    this.#db
+      .prepare(
+        `INSERT INTO coverage (agent_id, json, computed_at) VALUES (?, ?, ?)
+         ON CONFLICT(agent_id) DO UPDATE SET json = excluded.json, computed_at = excluded.computed_at`,
+      )
+      .run(agentId, JSON.stringify(report), computedAt);
+  }
+
+  coverageFor<T>(agentId: string): T | undefined {
+    const row = this.#db.prepare('SELECT json FROM coverage WHERE agent_id = ?').get(agentId) as { json: string } | undefined;
+    return row ? (JSON.parse(row.json) as T) : undefined;
+  }
+
   // ---- alerts ----
 
   alertFor(agentId: string, rubricId: string, windowKey: string): AlertRow | undefined {
