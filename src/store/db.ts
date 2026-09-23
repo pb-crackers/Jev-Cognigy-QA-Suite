@@ -12,6 +12,7 @@ import type { Rubric } from '../rubrics/model.ts';
 import type { Agent } from '../agents/model.ts';
 import { traceKey, unwrapTrace, type StoredTrace, type TracePayload } from '../traces/model.ts';
 import type { ToolCallRecord } from '../traces/reconstruct.ts';
+import type { Located } from '../scoring/locate.ts';
 import { databaseFile } from '../paths.ts';
 
 export interface RunRow {
@@ -162,6 +163,11 @@ CREATE TABLE IF NOT EXISTS coverage (
 );
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY, value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS locate (
+  agent_id TEXT NOT NULL, session_id TEXT NOT NULL, rubric_id TEXT NOT NULL,
+  json TEXT NOT NULL, located_at TEXT NOT NULL,
+  PRIMARY KEY (agent_id, session_id, rubric_id)
 );
 CREATE TABLE IF NOT EXISTS tool_call (
   agent_id TEXT NOT NULL, session_id TEXT NOT NULL, seq INTEGER NOT NULL,
@@ -500,6 +506,34 @@ export class Store {
       'INSERT INTO tool_call (agent_id, session_id, seq, name, input_id, json) VALUES (?, ?, ?, ?, ?, ?)',
     );
     for (const call of calls) insert.run(agentId, sessionId, call.seq, call.name, call.inputId ?? null, JSON.stringify(call));
+  }
+
+  // ---- which message a verdict rests on ----
+
+  saveLocate(agentId: string, sessionId: string, rubricId: string, located: Located): void {
+    this.#db
+      .prepare(
+        `INSERT INTO locate (agent_id, session_id, rubric_id, json, located_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(agent_id, session_id, rubric_id) DO UPDATE SET json = excluded.json, located_at = excluded.located_at`,
+      )
+      .run(agentId, sessionId, rubricId, JSON.stringify(located), new Date().toISOString());
+  }
+
+  /** The stored answer, if it was asked about this same verdict. */
+  locateFor(agentId: string, sessionId: string, rubricId: string, raw: string): Located | undefined {
+    const row = this.#db
+      .prepare('SELECT json FROM locate WHERE agent_id = ? AND session_id = ? AND rubric_id = ?')
+      .get(agentId, sessionId, rubricId) as { json: string } | undefined;
+    const located = row ? (JSON.parse(row.json) as Located) : undefined;
+    return located?.raw === raw ? located : undefined;
+  }
+
+  /** Every stored answer for one rubric under an agent, by session. */
+  locatesForRubric(agentId: string, rubricId: string): Map<string, Located> {
+    const rows = this.#db
+      .prepare('SELECT session_id, json FROM locate WHERE agent_id = ? AND rubric_id = ?')
+      .all(agentId, rubricId) as { session_id: string; json: string }[];
+    return new Map(rows.map((row) => [row.session_id, JSON.parse(row.json) as Located]));
   }
 
   /** Records a session's stage-0 checks after the fact, without touching its scores. */
