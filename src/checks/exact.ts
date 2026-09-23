@@ -96,8 +96,9 @@ export interface SessionChecks {
   latency: { turns: number; medianMs?: number; maxMs?: number };
   /** Inputs with a logged LLM call that the transcript doesn't have — a transcript missing turns. */
   transcriptGaps: string[];
-  /** Payload fields that arrived shaped unexpectedly. */
+  /** Payload fields that arrived shaped unexpectedly, and where. */
   drift: number;
+  driftPaths: string[];
   /** Tool calls with at least one failed check. */
   failedCalls: number;
 }
@@ -124,6 +125,7 @@ export function checkSession(turns: Turn[], trace: SessionTrace | undefined): Se
       : { turns: 0 },
     transcriptGaps: trace ? [...trace.inputIds].filter((inputId) => !known.has(inputId)) : [],
     drift: trace?.drift.length ?? 0,
+    driftPaths: [...new Set(trace?.drift.map((warning) => warning.path) ?? [])],
     failedCalls: trace ? trace.toolCalls.filter((call) => call.checks.some((check) => check.outcome === 'fail')).length : 0,
   };
 }

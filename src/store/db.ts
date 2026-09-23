@@ -11,6 +11,7 @@ import { dirname } from 'node:path';
 import type { Rubric } from '../rubrics/model.ts';
 import type { Agent } from '../agents/model.ts';
 import type { StoredTrace, TracePayload } from '../traces/model.ts';
+import type { ToolCallRecord } from '../traces/reconstruct.ts';
 import { databaseFile } from '../paths.ts';
 
 export interface RunRow {
@@ -49,6 +50,26 @@ export interface SessionRow {
   lastAt?: string | null;
   /** How much of the session's agent output has a logged LLM call behind it. */
   traceCoverage?: TraceCoverage | null;
+  /** Why scoring failed, when it did. A failed session has no results and is retried. */
+  error?: string | null;
+  /** Consecutive failed attempts, including this one. */
+  attempts?: number | null;
+  /** Stage-0 checks for the session, as JSON (`SessionChecks`). */
+  checks?: string | null;
+}
+
+/** A session row as stored — one mapping, however it was queried. */
+function sessionRow(row: Record<string, never>): SessionRow {
+  return {
+    runId: row.run_id, sessionId: row.session_id, startedAt: row.started_at,
+    endpointLabel: row.endpoint_label, channel: row.channel,
+    channelLabel: row.channel_label, flowName: row.flow_name,
+    turns: row.turns, chunks: row.chunks, rating: row.rating,
+    ratingComment: row.rating_comment, unscoreable: row.unscoreable,
+    transcript: row.transcript, costUsd: row.cost_usd, ms: row.ms,
+    lastAt: row.last_at ?? null, traceCoverage: row.trace_coverage ?? null,
+    error: row.error ?? null, attempts: row.attempts ?? null, checks: row.checks ?? null,
+  };
 }
 
 export type TraceCoverage = 'full' | 'partial' | 'none';
@@ -142,6 +163,11 @@ CREATE TABLE IF NOT EXISTS coverage (
 CREATE TABLE IF NOT EXISTS meta (
   key TEXT PRIMARY KEY, value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS tool_call (
+  agent_id TEXT NOT NULL, session_id TEXT NOT NULL, seq INTEGER NOT NULL,
+  name TEXT NOT NULL, input_id TEXT, json TEXT NOT NULL,
+  PRIMARY KEY (agent_id, session_id, seq)
+);
 `;
 
 export class Store {
@@ -172,6 +198,22 @@ export class Store {
     add('session', 'last_at', 'TEXT');
     add('session', 'trace_coverage', 'TEXT');
     add('run', 'agent_id', 'TEXT');
+    add('session', 'error', 'TEXT');
+    add('session', 'attempts', 'INTEGER');
+    add('session', 'checks', 'TEXT');
+
+    // What identifies one logged call, so a retried or re-imported payload is
+    // stored once rather than counted twice. Cognigy's traceId is per user turn,
+    // not per call — a turn with a tool call shares it across its calls — so
+    // the call's own millisecond timestamp is part of the key.
+    if (!has('trace', 'trace_id')) {
+      this.#db.exec('ALTER TABLE trace ADD COLUMN trace_id TEXT');
+      this.#db.exec(`UPDATE trace SET trace_id = COALESCE(
+        json_extract(json, '$.meta.traceId'), json_extract(json, '$.body.meta.traceId'),
+        session_id || '|' || COALESCE(input_id, '')) || '|' || event_at`);
+      this.#db.exec(`DELETE FROM trace WHERE id NOT IN (SELECT MIN(id) FROM trace GROUP BY agent_id, trace_id)`);
+    }
+    this.#db.exec('CREATE UNIQUE INDEX IF NOT EXISTS trace_once ON trace (agent_id, trace_id)');
   }
 
   close(): void {
@@ -284,12 +326,13 @@ export class Store {
       .prepare(
         `INSERT INTO session (run_id, session_id, started_at, endpoint_label, channel,
            channel_label, flow_name, turns, chunks, rating, rating_comment, unscoreable,
-           transcript, cost_usd, ms, last_at, trace_coverage)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           transcript, cost_usd, ms, last_at, trace_coverage, error, attempts, checks)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(run_id, session_id) DO UPDATE SET
            turns = excluded.turns, chunks = excluded.chunks,
            transcript = excluded.transcript, cost_usd = excluded.cost_usd, ms = excluded.ms,
-           last_at = excluded.last_at, trace_coverage = excluded.trace_coverage`,
+           last_at = excluded.last_at, trace_coverage = excluded.trace_coverage,
+           error = excluded.error, attempts = excluded.attempts, checks = excluded.checks`,
       )
       .run(
         session.runId, session.sessionId, session.startedAt, session.endpointLabel,
@@ -298,6 +341,7 @@ export class Store {
         session.rating, session.ratingComment, session.unscoreable,
         session.transcript, session.costUsd, session.ms,
         session.lastAt ?? null, session.traceCoverage ?? null,
+        session.error ?? null, session.attempts ?? null, session.checks ?? null,
       );
 
     const insert = this.#db.prepare(
@@ -319,15 +363,7 @@ export class Store {
     const rows = this.#db
       .prepare('SELECT * FROM session WHERE run_id = ? ORDER BY started_at DESC')
       .all(runId) as Record<string, never>[];
-    return rows.map((row) => ({
-      runId: row.run_id, sessionId: row.session_id, startedAt: row.started_at,
-      endpointLabel: row.endpoint_label, channel: row.channel,
-      channelLabel: row.channel_label, flowName: row.flow_name,
-      turns: row.turns, chunks: row.chunks, rating: row.rating,
-      ratingComment: row.rating_comment, unscoreable: row.unscoreable,
-      transcript: row.transcript, costUsd: row.cost_usd, ms: row.ms,
-      lastAt: row.last_at ?? null, traceCoverage: row.trace_coverage ?? null,
-    }));
+    return rows.map(sessionRow);
   }
 
   resultsForRun(runId: string): ResultRow[] {
@@ -420,32 +456,54 @@ export class Store {
       .all(...(since ? [agentId, since] : [agentId])) as Record<string, never>[];
     const newest = new Map<string, SessionRow>();
     for (const row of rows) {
-      newest.set(row.session_id, {
-        runId: row.run_id, sessionId: row.session_id, startedAt: row.started_at,
-        endpointLabel: row.endpoint_label, channel: row.channel,
-        channelLabel: row.channel_label, flowName: row.flow_name,
-        turns: row.turns, chunks: row.chunks, rating: row.rating,
-        ratingComment: row.rating_comment, unscoreable: row.unscoreable,
-        transcript: row.transcript, costUsd: row.cost_usd, ms: row.ms,
-        lastAt: row.last_at ?? null, traceCoverage: row.trace_coverage ?? null,
-      });
+      newest.set(row.session_id, sessionRow(row));
     }
     return [...newest.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   }
 
   // ---- traces ----
 
-  saveTrace(agentId: string, payload: TracePayload, receivedAt = new Date().toISOString()): number {
+  /** Stores a logged call once. Returns false when it was already stored. */
+  saveTrace(agentId: string, payload: TracePayload, receivedAt = new Date().toISOString()): boolean {
+    const { sessionId, inputId, timestamp, traceId } = payload.meta;
     const result = this.#db
       .prepare(
-        `INSERT INTO trace (agent_id, session_id, input_id, event_at, received_at, json)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT OR IGNORE INTO trace (agent_id, session_id, input_id, event_at, received_at, json, trace_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
-        agentId, payload.meta.sessionId, payload.meta.inputId ?? null,
-        payload.meta.timestamp, receivedAt, JSON.stringify(payload),
+        agentId, sessionId, inputId ?? null, timestamp, receivedAt, JSON.stringify(payload),
+        `${traceId ?? `${sessionId}|${inputId ?? ''}`}|${timestamp}`,
       );
-    return Number(result.lastInsertRowid);
+    return result.changes > 0;
+  }
+
+  // ---- tool calls ----
+
+  /** Replaces a session's tool call records with the ones just rebuilt. */
+  saveToolCalls(agentId: string, sessionId: string, calls: ToolCallRecord[]): void {
+    this.#db.prepare('DELETE FROM tool_call WHERE agent_id = ? AND session_id = ?').run(agentId, sessionId);
+    const insert = this.#db.prepare(
+      'INSERT INTO tool_call (agent_id, session_id, seq, name, input_id, json) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    for (const call of calls) insert.run(agentId, sessionId, call.seq, call.name, call.inputId ?? null, JSON.stringify(call));
+  }
+
+  toolCallsFor(agentId: string, sessionId: string): ToolCallRecord[] {
+    const rows = this.#db
+      .prepare('SELECT json FROM tool_call WHERE agent_id = ? AND session_id = ? ORDER BY seq')
+      .all(agentId, sessionId) as { json: string }[];
+    return rows.map((row) => JSON.parse(row.json) as ToolCallRecord);
+  }
+
+  /**
+   * Sessions whose newest attempt under this agent failed, with how many times
+   * in a row it has — what the collector retries.
+   */
+  failedSessions(agentId: string): { sessionId: string; attempts: number; error: string }[] {
+    return this.agentSessions(agentId)
+      .filter((session) => session.error)
+      .map((session) => ({ sessionId: session.sessionId, attempts: session.attempts ?? 1, error: session.error! }));
   }
 
   tracesFor(agentId: string, sessionId: string): StoredTrace[] {
@@ -516,11 +574,7 @@ export class Store {
       if (seen.has(row.session_id)) continue;
       seen.add(row.session_id);
       out.push({
-        runId: row.run_id, sessionId: row.session_id, startedAt: row.started_at,
-        endpointLabel: row.endpoint_label, channel: row.channel, channelLabel: row.channel_label,
-        flowName: row.flow_name, turns: row.turns, chunks: row.chunks, rating: row.rating,
-        ratingComment: row.rating_comment, unscoreable: row.unscoreable, transcript: row.transcript,
-        costUsd: row.cost_usd, ms: row.ms, lastAt: row.last_at ?? null, traceCoverage: row.trace_coverage ?? null,
+        ...sessionRow(row),
         agentId: row.run_agent_id ?? null,
       });
       if (out.length >= limit) break;

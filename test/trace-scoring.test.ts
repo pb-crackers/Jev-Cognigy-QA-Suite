@@ -129,12 +129,19 @@ describe('trace-aware state', () => {
     store.close();
   });
 
-  it('keeps tool lines in the stored transcript so the reviewer sees them too', async () => {
+  it('stores the conversation as it happened, and the tool calls as checked records beside it', async () => {
     const { store, agent } = agentSetup('all');
     const { run: saved } = await run(store, agent.id);
-    const turns = JSON.parse(store.sessionsForRun(saved.id)[0].transcript) as Turn[];
-    assert.deepEqual(turns.filter((turn) => turn.tool).map((turn) => turn.tool), ['call', 'result']);
-    assert.equal(store.sessionsForRun(saved.id)[0].turns, 4, 'the turn count is still the conversation, not the log');
+    const row = store.sessionsForRun(saved.id)[0];
+    const turns = JSON.parse(row.transcript) as Turn[];
+    assert.equal(turns.filter((turn) => turn.tool).length, 0, 'no tool lines baked into the transcript');
+    assert.equal(row.turns, 4);
+    const calls = store.toolCallsFor(agent.id, 'sess-1');
+    assert.deepEqual(calls.map((call) => call.name), ['estimate_payment']);
+    assert.ok(calls[0].checks.length > 0 && calls[0].result);
+    const checks = JSON.parse(row.checks!);
+    assert.deepEqual(checks.transcriptGaps, []);
+    assert.equal(checks.latency.turns, 2);
     store.close();
   });
 
@@ -142,6 +149,55 @@ describe('trace-aware state', () => {
     const { store } = agentSetup('all');
     await run(store);
     assert.deepEqual(Object.keys(api.requests.at(-1)!.state as object).sort(), ['conversation', 'flow']);
+    store.close();
+  });
+});
+
+describe('one session failing', () => {
+  /** Two sessions; the first can't be read from Cognigy until `broken` is cleared. */
+  function twoSessions(state: { broken: boolean }) {
+    const ok = odataFor('sess-ok');
+    const bad = odataFor('sess-bad');
+    const asked: { sessionIds?: readonly string[] }[] = [];
+    return {
+      asked,
+      odata: {
+        async sessions(options: { from: string; sessionIds?: readonly string[] }) {
+          asked.push(options);
+          const all = [...await bad.sessions(), ...await ok.sessions()];
+          if (options.sessionIds) return all.filter((session) => options.sessionIds!.includes(session.sessionId));
+          // Once the watermark has moved on, the failed session is outside the range.
+          return options.from === 'later' ? all.filter((session) => session.sessionId !== 'sess-bad') : all;
+        },
+        async conversation(_project: string, sessionId: string) {
+          if (sessionId === 'sess-bad' && state.broken) throw new Error('Cognigy answered 502');
+          return (sessionId === 'sess-bad' ? bad : ok).conversation();
+        },
+      } as never,
+    };
+  }
+
+  it('records the failure, scores the rest, and retries it next time', async () => {
+    const store = new Store(':memory:');
+    const agent = createAgent({ name: 'Home Loans', projectId: 'p1', endpoints: [{ id: 'e', name: 'REST' }],
+      rubrics: { helped: true } }, store, rubrics);
+    const state = { broken: true };
+    const { odata, asked } = twoSessions(state);
+    const request = { projectId: 'p1', projectName: 'P', from: 'a', to: 'b', limit: 5, skipScored: true, skipMode: 'rubric' as const, agentId: agent.id };
+
+    const first = await executeRun(request, { odata, store, rubrics });
+    assert.deepEqual(first.scored.map((session) => session.sessionId), ['sess-ok']);
+    assert.deepEqual(first.failed, [{ sessionId: 'sess-bad', error: 'Cognigy answered 502', attempts: 1 }]);
+    assert.deepEqual(store.failedSessions(agent.id), [{ sessionId: 'sess-bad', attempts: 1, error: 'Cognigy answered 502' }]);
+
+    const second = await executeRun({ ...request, retrySessionIds: ['sess-bad'] }, { odata, store, rubrics });
+    assert.equal(second.failed[0].attempts, 2, 'counts consecutive failures');
+
+    state.broken = false;
+    const third = await executeRun({ ...request, from: 'later', retrySessionIds: ['sess-bad'] }, { odata, store, rubrics });
+    assert.ok(third.scored.some((session) => session.sessionId === 'sess-bad'), 'scored once it can be');
+    assert.deepEqual(store.failedSessions(agent.id), []);
+    assert.ok(asked.some((options) => options.sessionIds?.includes('sess-bad')), 'fetched by id, whenever it happened');
     store.close();
   });
 });

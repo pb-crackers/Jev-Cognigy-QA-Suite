@@ -67,8 +67,12 @@ export function computeHealth(
   now: Date = new Date(),
 ): AgentHealth {
   const since = new Date(now.getTime() - WINDOW_DAYS[window] * 86_400_000).toISOString();
-  const sessions = store.agentSessions(agent.id, since).filter((session) => !session.unscoreable);
-  const results = store.latestResults(sessions.map((session) => session.sessionId));
+  const collected = store.agentSessions(agent.id, since).filter((session) => !session.unscoreable);
+  const results = store.latestResults(collected.map((session) => session.sessionId));
+  // A session whose scoring failed has nothing to say about the agent — unless
+  // an earlier attempt answered, in which case those answers still stand.
+  const answered = new Set(results.map((result) => result.sessionId));
+  const sessions = collected.filter((session) => !session.error || answered.has(session.sessionId));
   const validity = store.validityReports<ValidityReport>();
   const own = agentRubrics(agent, rubrics);
 

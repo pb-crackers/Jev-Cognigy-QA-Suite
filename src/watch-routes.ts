@@ -10,12 +10,16 @@ import type { CognigyApi } from './cognigy/api.ts';
 import type { OdataClient } from './cognigy/odata.ts';
 import type { Config } from './config.ts';
 import type { Store } from './store/db.ts';
-import { AgentError, createAgent, updateAgent, type AgentInput } from './agents/service.ts';
+import { AgentError, agentRunRequest, createAgent, updateAgent, type AgentInput } from './agents/service.ts';
 import { suggestAgents } from './agents/suggest.ts';
 import { hookUrl, installLogging, loggingStatus, uninstallLogging } from './agents/logging.ts';
 import { collectAgent, type CollectReport } from './collector/collect.ts';
 import type { Scheduler } from './collector/scheduler.ts';
 import { computeHealth, WINDOW_DAYS, type HealthWindow } from './health/health.ts';
+import { computeDataHealth } from './health/data.ts';
+import { executeRun } from './scoring/run.ts';
+import { placeToolCalls } from './traces/place.ts';
+import type { Turn } from './cognigy/transcript.ts';
 import { checkCoverage } from './validity/coverage.ts';
 import { checkValidity, type ValidityReport } from './validity/validity.ts';
 import { importTraces, MAX_TRACE_BYTES, receiveTrace } from './traces/receiver.ts';
@@ -114,6 +118,7 @@ function agentSummary(deps: WatchDeps, agentId: string, window: HealthWindow) {
       reportable: health.reportable, verifiedShare: health.verifiedShare, alerts: health.alerts, traced: health.traced,
     },
     hookUrl: deps.config.publicUrl ? hookUrl(deps.config.publicUrl, agentId) : null,
+    dataProblems: computeDataHealth(agentId, store, window).problems,
   };
 }
 
@@ -214,6 +219,7 @@ export async function handleWatchRoute(
         return send(200, {
           ...agentSummary(deps, id, window),
           detail: computeHealth(agent, store.rubrics(), store, window),
+          data: computeDataHealth(id, store, window),
           coverage: store.coverageFor(id) ?? null,
           alerts: store.alerts({ agentId: id, limit: 50 }),
         }), true;
@@ -260,6 +266,18 @@ export async function handleWatchRoute(
       if (action === 'logging' && method === 'DELETE') {
         return send(200, (await uninstallLogging(agent, api, store)).report), true;
       }
+      // Scores one failed session now, however many times it has failed before.
+      if (action === 'retry' && method === 'POST') {
+        const { sessionId } = await readBody<{ sessionId?: string }>(request);
+        if (!sessionId) return send(400, { error: 'Say which session to score: { "sessionId": "…" }' }), true;
+        const rubrics = store.rubrics();
+        const now = new Date().toISOString();
+        const outcome = await executeRun(
+          { ...agentRunRequest(agent, rubrics, { from: now, to: now, limit: 1 }), retrySessionIds: [sessionId] },
+          { odata: deps.odata, store, rubrics },
+        );
+        return send(200, { scored: outcome.scored.length, failed: outcome.failed }), true;
+      }
       if (action === 'coverage' && method === 'POST') {
         return send(200, await checkCoverage(agent, store.rubrics(), store)), true;
       }
@@ -279,12 +297,18 @@ export async function handleWatchRoute(
       if (!row) return send(404, { error: 'No such session for this agent' }), true;
       const rubrics = store.rubrics();
       const [scored] = scoreSessions([row], store.latestResults([row.sessionId]), rubrics);
+      const toolCalls = store.toolCallsFor(agentId!, row.sessionId);
       return send(200, {
         ...row,
         channelKind: labelFor(row.channel).kind,
         composite: scored.composite ?? null,
         flagged: scored.flagged,
         results: Object.fromEntries(scored.results),
+        checks: row.checks ? JSON.parse(row.checks) : null,
+        toolCalls,
+        // The conversation with each input's tool calls where they happened —
+        // the same placement the grader read them in.
+        timeline: placeToolCalls(JSON.parse(row.transcript) as Turn[], toolCalls),
       }), true;
     }
 
