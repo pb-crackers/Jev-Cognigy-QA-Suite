@@ -27,12 +27,11 @@ export interface LoggingInstall {
   nodeType: string;
   nodeLabel: string;
   installedAt: string;
-  /** The four fields exactly as they were, so uninstall puts them back. */
+  /** The three fields exactly as they were, so uninstall puts them back. */
   previous: {
     advancedLogging: unknown;
     loggingWebhookUrl: unknown;
     loggingHeaders: unknown;
-    loggingCustomData: unknown;
   };
 }
 

@@ -20,6 +20,11 @@ export interface Config {
    * dropping an `api-` prefix. Only needed on environments that break that rule.
    */
   cognigyAppBase?: string;
+  /**
+   * Where Cognigy can reach this machine — the tunnel's public URL. Logging is
+   * installed pointing here; without it there is nowhere for Cognigy to post.
+   */
+  publicUrl?: string;
 }
 
 export const ENV_KEYS = {
@@ -29,6 +34,7 @@ export const ENV_KEYS = {
   cognigyOdataBase: 'COGNIGY_ODATA_BASE',
   projectId: 'COGNIGY_PROJECT_ID',
   cognigyAppBase: 'COGNIGY_APP_BASE',
+  publicUrl: 'AGENT_WATCH_PUBLIC_URL',
 } as const;
 
 export function fromEnv(env: NodeJS.ProcessEnv = process.env): Partial<Config> {
@@ -39,6 +45,7 @@ export function fromEnv(env: NodeJS.ProcessEnv = process.env): Partial<Config> {
     cognigyOdataBase: env[ENV_KEYS.cognigyOdataBase],
     projectId: env[ENV_KEYS.projectId],
     cognigyAppBase: env[ENV_KEYS.cognigyAppBase],
+    publicUrl: env[ENV_KEYS.publicUrl],
   };
 }
 
