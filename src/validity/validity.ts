@@ -27,7 +27,6 @@ import { ask } from '../jev.ts';
 import { Ledger } from '../metering.ts';
 import { normalize, type Rubric } from '../rubrics/model.ts';
 import { reaskSession } from '../scoring/run.ts';
-import { fixedState } from '../scoring/state.ts';
 import { reconstruct } from '../traces/reconstruct.ts';
 import { REVIEW_CONFIDENCE } from '../store/score.ts';
 import type { Store } from '../store/db.ts';
@@ -178,8 +177,8 @@ export async function measureStability(
     const stored = store.latestResults([session.sessionId]).filter((result) => byId.has(result.rubricId));
     if (stored.length === 0) continue;
     const traces = session.agentId ? store.tracesFor(session.agentId, session.sessionId) : [];
-    const fixed = session.traceCoverage && traces.length ? fixedState(reconstruct(traces)) : {};
-    const again = await reaskSession(session, stored.map((result) => byId.get(result.rubricId)!), ledger, fixed);
+    const trace = session.traceCoverage && traces.length ? reconstruct(traces) : undefined;
+    const again = await reaskSession(session, stored.map((result) => byId.get(result.rubricId)!), ledger, trace);
 
     for (const result of stored) {
       const rubric = byId.get(result.rubricId)!;

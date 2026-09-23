@@ -51,6 +51,7 @@ export function receiveTrace(
   const payload = unwrapTrace(parsed);
   if (!payload) return { status: 400, body: { error: 'No meta.sessionId in the payload' } };
 
+  // A retry of a call already stored is still a success for the sender.
   store.saveTrace(agentId, payload);
   return { status: 204 };
 }
@@ -60,15 +61,18 @@ export function receiveTrace(
  * stored envelopes — so history from before Agent Watch was listening, or from
  * while the laptop was asleep and a relay was not, can still be graded.
  */
-export function importTraces(store: Pick<Store, 'agent' | 'saveTrace'>, agentId: string, value: unknown): { imported: number; skipped: number } {
+export function importTraces(
+  store: Pick<Store, 'agent' | 'saveTrace'>, agentId: string, value: unknown,
+): { imported: number; duplicates: number; skipped: number } {
   if (!store.agent(agentId)) throw new Error(`No agent "${agentId}"`);
   const items = Array.isArray(value) ? value : [value];
   let imported = 0;
+  let duplicates = 0;
   for (const item of items) {
     const payload = unwrapTrace(item);
     if (!payload) continue;
-    store.saveTrace(agentId, payload);
-    imported++;
+    if (store.saveTrace(agentId, payload)) imported++;
+    else duplicates++;
   }
-  return { imported, skipped: items.length - imported };
+  return { imported, duplicates, skipped: items.length - imported - duplicates };
 }

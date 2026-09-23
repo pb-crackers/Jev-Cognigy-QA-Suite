@@ -23,6 +23,8 @@ import { deliverAlert, type Notifier } from '../alerts/deliver.ts';
 export const SETTLE_MINUTES = 10;
 /** A brand-new agent looks back this far on its first collection. */
 export const FIRST_LOOKBACK_HOURS = 24;
+/** Tries at scoring a session before it is left for someone to look at. */
+export const MAX_ATTEMPTS = 3;
 /** Sessions per collection. A catch-up larger than this continues on the next tick. */
 export const BATCH_LIMIT = 200;
 
@@ -47,6 +49,8 @@ export interface CollectReport {
   deferred: number;
   costUsd: number;
   alertsFired: number;
+  /** Sessions whose scoring failed this time; each is retried on later collections. */
+  failed: number;
   /** The batch was full, so there is more to catch up on straight away. */
   backlog: boolean;
   warnings: string[];
@@ -61,7 +65,7 @@ export async function collectAgent(agentId: string, deps: CollectDeps, now: Date
   const from = state.watermark ?? new Date(now.getTime() - FIRST_LOOKBACK_HOURS * 3_600_000).toISOString();
   const settledBefore = new Date(now.getTime() - (deps.settleMinutes ?? SETTLE_MINUTES) * 60_000).toISOString();
   const report: CollectReport = {
-    agentId, at: now.toISOString(), from, watermark: from, found: 0, scored: 0, deferred: 0, costUsd: 0, alertsFired: 0, backlog: false, warnings: [],
+    agentId, at: now.toISOString(), from, watermark: from, found: 0, scored: 0, deferred: 0, costUsd: 0, alertsFired: 0, failed: 0, backlog: false, warnings: [],
   };
 
   try {
@@ -73,12 +77,19 @@ export async function collectAgent(agentId: string, deps: CollectDeps, now: Date
     }
 
     const rubrics = store.rubrics();
+    const retrySessionIds = store.failedSessions(agentId)
+      .filter((failure) => failure.attempts < MAX_ATTEMPTS)
+      .map((failure) => failure.sessionId);
     const outcome = await executeRun(
-      agentRunRequest(agent, rubrics, { from, to: now.toISOString(), limit: BATCH_LIMIT, settledBefore, oldestFirst: true }),
+      {
+        ...agentRunRequest(agent, rubrics, { from, to: now.toISOString(), limit: BATCH_LIMIT, settledBefore, oldestFirst: true }),
+        retrySessionIds,
+      },
       { odata: deps.odata, store, rubrics },
     );
     report.found = outcome.found.length;
     report.scored = outcome.scored.length;
+    report.failed = outcome.failed.length;
     report.deferred = outcome.deferred.length;
     report.costUsd = outcome.ledger.totals().costUsd;
 

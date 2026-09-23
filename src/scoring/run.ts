@@ -16,6 +16,7 @@ import { traceReady, type Rubric } from '../rubrics/model.ts';
 import type { TraceCoverage } from '../store/db.ts';
 import { reconstruct, traceCoverage, type SessionTrace } from '../traces/reconstruct.ts';
 import { fixedState, fixedTokens, withToolLines } from './state.ts';
+import { checkSession, checkToolCalls } from '../checks/exact.ts';
 import { chunkTurns, estimateTokens, stateBudget } from './chunk.ts';
 import { combineAnswers, type ChunkAnswer } from './combine.ts';
 import type { ResultRow, RunRow, SessionRow, Store } from '../store/db.ts';
@@ -57,6 +58,8 @@ export interface RunRequest {
    * is deferred rather than scored half-finished.
    */
   settledBefore?: string;
+  /** Sessions whose earlier scoring failed, retried whatever the time range. */
+  retrySessionIds?: readonly string[];
 }
 
 export interface RunOutcome {
@@ -73,6 +76,8 @@ export interface RunOutcome {
   found: SessionSummary[];
   /** Discovery stopped at its record cap, so there may be more waiting whatever `found` says. */
   truncated: boolean;
+  /** Sessions whose scoring failed this run, recorded with why and retried later. */
+  failed: { sessionId: string; error: string; attempts: number }[];
 }
 
 export interface RunProgress {
@@ -185,9 +190,13 @@ export async function reaskSession(
   session: SessionRow,
   rubrics: Rubric[],
   ledger: Ledger,
-  fixed: ReturnType<typeof fixedState> = {},
+  trace?: SessionTrace,
 ): Promise<Map<string, ChunkAnswer>> {
-  const turns = JSON.parse(session.transcript) as Transcript['turns'];
+  const stored = JSON.parse(session.transcript) as Transcript['turns'];
+  // Sessions scored before tool calls had their own records kept the lines in
+  // the transcript itself; newer ones get them placed back, as scoring did.
+  const turns = stored.some((turn) => turn.tool) ? stored : withToolLines(stored, trace);
+  const fixed = fixedState(trace);
   const modality = modalityOf(labelFor(session.channel).kind);
   const questions = compile(rubrics, modality);
   const state = {
@@ -209,6 +218,24 @@ export async function reaskSession(
     if (answer) out.set(rubric.id, answer);
   }
   return out;
+}
+
+/** What a stored session row says about where it came from, scored or not. */
+function sessionBasics(runId: string, summary: SessionSummary, transcript: Transcript | undefined) {
+  return {
+    runId,
+    sessionId: summary.sessionId,
+    startedAt: transcript?.turns[0]?.at ?? summary.startedAt,
+    endpointLabel: transcript?.endpointLabel ?? summary.endpointName ?? 'Interaction Panel',
+    channel: transcript?.channel ?? summary.channel,
+    channelLabel: transcript?.channelLabel.label ?? labelFor(summary.channel).label,
+    flowName: transcript?.flowName ?? null,
+    turns: transcript?.turns.length ?? 0,
+    rating: transcript?.rating ?? summary.rating,
+    ratingComment: transcript?.ratingComment ?? null,
+    unscoreable: transcript?.unscoreable ?? null,
+    lastAt: summary.lastAt,
+  };
 }
 
 export async function executeRun(
@@ -238,6 +265,25 @@ export async function executeRun(
     channels: request.channels,
     limit: request.limit,
   });
+
+  // Failed sessions come back whenever they happened, in small batches.
+  const retry = (request.retrySessionIds ?? []).filter((id) => !candidates.some((session) => session.sessionId === id));
+  for (let index = 0; index < retry.length; index += 20) {
+    const batch = await odata.sessions({
+      projectId: request.projectId,
+      from: request.from,
+      to: request.to,
+      endpointNames: request.endpointNames,
+      includePanel: request.includePanel,
+      panelFlowNames: request.panelFlowNames,
+      sessionIds: retry.slice(index, index + 20),
+      limit: 20,
+    });
+    candidates = Object.assign([...candidates, ...batch], { truncated: candidates.truncated });
+  }
+  const priorFailures = new Map(
+    request.agentId ? store.failedSessions(request.agentId).map((failure) => [failure.sessionId, failure.attempts]) : [],
+  );
 
   const found = candidates;
   const deferred = request.settledBefore
@@ -275,6 +321,7 @@ export async function executeRun(
   let done = 0;
   let split = 0;
   const scoredSessions: RunOutcome['scored'] = [];
+  const failed: RunOutcome['failed'] = [];
 
   for (const summary of candidates) {
     onProgress?.({
@@ -287,57 +334,68 @@ export async function executeRun(
 
     const sessionStart = ledger.mark;
     const sessionMs = Date.now();
-    const records = await odata.conversation(request.projectId, summary.sessionId);
-    const transcript = assemble(summary.sessionId, records);
+    let transcript: Transcript | undefined;
+    // One session going wrong — a Jev timeout, a payload nobody has seen — is
+    // recorded against that session and retried later; the rest carry on.
+    try {
+      const records = await odata.conversation(request.projectId, summary.sessionId);
+      transcript = assemble(summary.sessionId, records);
 
-    let results: Omit<ResultRow, 'runId' | 'sessionId'>[] = [];
-    let chunks = 0;
-    let turns = transcript.turns;
+      let results: Omit<ResultRow, 'runId' | 'sessionId'>[] = [];
+      let chunks = 0;
 
-    // Only an agent has traces: its webhook is where they arrive.
-    const traces = request.agentId ? store.tracesFor(request.agentId, summary.sessionId) : [];
-    const session = traces.length ? reconstruct(traces) : undefined;
-    const coverage = request.agentId ? traceCoverage(transcript.turns, session) : null;
+      // Only an agent has traces: its webhook is where they arrive.
+      const traces = request.agentId ? store.tracesFor(request.agentId, summary.sessionId) : [];
+      const session = traces.length ? reconstruct(traces) : undefined;
+      if (session) checkToolCalls(session.toolCalls, session.tools);
+      const coverage = request.agentId ? traceCoverage(transcript.turns, session) : null;
 
-    if (!transcript.unscoreable) {
-      const scored = await scoreTranscript(
-        transcript,
-        needs.get(summary.sessionId) ?? enabled,
-        ledger,
-        coverage ? { session, coverage } : undefined,
+      if (!transcript.unscoreable) {
+        const scored = await scoreTranscript(
+          transcript,
+          needs.get(summary.sessionId) ?? enabled,
+          ledger,
+          coverage ? { session, coverage } : undefined,
+        );
+        results = scored.results;
+        chunks = scored.chunks;
+        if (chunks > 1) split++;
+      }
+
+      const spend = ledger.totals(ledger.since(sessionStart));
+      store.saveSession(
+        {
+          ...sessionBasics(runId, summary, transcript),
+          chunks,
+          // The conversation as it happened. Tool calls live in their own records
+          // and are placed into it when shown, the same way the grader saw them.
+          transcript: JSON.stringify(transcript.turns),
+          costUsd: spend.costUsd,
+          ms: Date.now() - sessionMs,
+          traceCoverage: coverage,
+          checks: request.agentId ? JSON.stringify(checkSession(transcript.turns, session)) : null,
+        },
+        results.map((result) => ({ ...result, runId, sessionId: summary.sessionId })),
       );
-      results = scored.results;
-      chunks = scored.chunks;
-      turns = scored.turns;
-      if (chunks > 1) split++;
+      if (request.agentId && session) store.saveToolCalls(request.agentId, summary.sessionId, session.toolCalls);
+      scoredSessions.push({ sessionId: summary.sessionId, startedAt: transcript.turns[0]?.at ?? summary.startedAt, lastAt: summary.lastAt });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      const attempts = (priorFailures.get(summary.sessionId) ?? 0) + 1;
+      store.saveSession(
+        {
+          ...sessionBasics(runId, summary, transcript),
+          chunks: 0,
+          transcript: JSON.stringify(transcript?.turns ?? []),
+          costUsd: ledger.totals(ledger.since(sessionStart)).costUsd,
+          ms: Date.now() - sessionMs,
+          error: reason,
+          attempts,
+        },
+        [],
+      );
+      failed.push({ sessionId: summary.sessionId, error: reason, attempts });
     }
-
-    const spend = ledger.totals(ledger.since(sessionStart));
-    const row: SessionRow = {
-      runId,
-      sessionId: summary.sessionId,
-      startedAt: transcript.turns[0]?.at ?? summary.startedAt,
-      endpointLabel: transcript.endpointLabel,
-      channel: transcript.channel,
-      channelLabel: transcript.channelLabel.label,
-      flowName: transcript.flowName,
-      turns: transcript.turns.length,
-      chunks,
-      rating: transcript.rating,
-      ratingComment: transcript.ratingComment,
-      unscoreable: transcript.unscoreable ?? null,
-      transcript: JSON.stringify(turns),
-      costUsd: spend.costUsd,
-      ms: Date.now() - sessionMs,
-      lastAt: summary.lastAt,
-      traceCoverage: coverage,
-    };
-
-    store.saveSession(
-      row,
-      results.map((result) => ({ ...result, runId, sessionId: summary.sessionId })),
-    );
-    scoredSessions.push({ sessionId: summary.sessionId, startedAt: row.startedAt, lastAt: summary.lastAt });
     done++;
   }
 
@@ -360,5 +418,5 @@ export async function executeRun(
   store.saveRun(run);
 
   onProgress?.({ done, total: candidates.length, costUsd: totals.costUsd, chunksSplit: split });
-  return { run, ledger, deferred, scored: scoredSessions, found, truncated: Boolean(found.truncated) };
+  return { run, ledger, deferred, scored: scoredSessions, found, truncated: Boolean(found.truncated), failed };
 }

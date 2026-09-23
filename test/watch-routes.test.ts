@@ -87,6 +87,19 @@ describe('agents over HTTP', () => {
     assert.equal(store.agent('home-loans')!.rubrics.jailbroken, false);
   });
 
+  it('reports data health with the agent, and a problem count in the fleet', async () => {
+    const detail = await call('/api/agents/home-loans');
+    assert.deepEqual(Object.keys(detail.body.data).sort(), ['drift', 'failed', 'failedCalls', 'gaps', 'logged', 'problems', 'sessions', 'unscoreable']);
+    const list = await call('/api/agents');
+    assert.equal(list.body[0].dataProblems, 0);
+  });
+
+  it('asks which session to score before retrying', async () => {
+    const { status, body } = await call('/api/agents/home-loans/retry', { method: 'POST', body: '{}' });
+    assert.equal(status, 400);
+    assert.match(body.error, /which session/);
+  });
+
   it('only holds simulated conversations in demo mode', async () => {
     const { status, body } = await call('/api/agents/home-loans/simulate', { method: 'POST', body: '{}' });
     assert.equal(status, 403);
@@ -126,7 +139,8 @@ describe('the webhook', () => {
 
   it('imports traces captured elsewhere', async () => {
     const { body } = await call('/api/agents/home-loans/traces/import', { method: 'POST', body: fixture('trace-session.json') });
-    assert.deepEqual(body, { imported: 3, skipped: 0 });
+    // The greeting posted to the webhook above is this session's first call, so it isn't stored twice.
+    assert.deepEqual(body, { imported: 2, duplicates: 1, skipped: 0 });
   });
 });
 

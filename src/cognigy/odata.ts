@@ -175,13 +175,22 @@ export class OdataClient {
      * order they happened, or the watermark would jump past unprocessed ones.
      */
     oldestFirst?: boolean;
+    /**
+     * Particular sessions, whenever they happened — a failed session being
+     * retried. Replaces the time range; the traffic filters still apply.
+     * Keep it to a couple of dozen: each id is one clause, and OData allows 100.
+     */
+    sessionIds?: readonly string[];
     limit: number;
   }): Promise<SessionSummary[] & { truncated?: boolean }> {
-    const clauses = [
-      `projectId eq ${odataString(options.projectId)}`,
-      `timestamp ge ${options.from}`,
-      `timestamp le ${options.to}`,
-    ];
+    const clauses = [`projectId eq ${odataString(options.projectId)}`];
+    if (options.sessionIds) {
+      if (options.sessionIds.length === 0) return [];
+      // Chained `or`: this OData rejects `in (...)`.
+      clauses.push(`(${options.sessionIds.map((id) => `sessionId eq ${odataString(id)}`).join(' or ')})`);
+    } else {
+      clauses.push(`timestamp ge ${options.from}`, `timestamp le ${options.to}`);
+    }
     if (options.endpointNames) {
       const traffic = endpointClause(options.endpointNames, options.includePanel ?? false, options.panelFlowNames);
       if (!traffic) return [];

@@ -117,6 +117,42 @@ describe('collecting one agent', () => {
     store.close();
   });
 
+  it('carries on past a session that fails, retries it, and gives up after three tries', async () => {
+    const { store, agent } = setup();
+    const sessions = [
+      { id: 'bad', startedAt: minutesAgo(60), lastAt: minutesAgo(50) },
+      { id: 'good', startedAt: minutesAgo(58), lastAt: minutesAgo(48) },
+    ];
+    const base = feed(sessions);
+    const odata = {
+      calls: [] as Record<string, unknown>[],
+      async sessions(options: Record<string, unknown>) {
+        odata.calls.push(options);
+        const all = await base.odata.sessions(options);
+        return options.sessionIds ? all.filter((s: SessionSummary) => (options.sessionIds as string[]).includes(s.sessionId)) : all;
+      },
+      async conversation(projectId: string, sessionId: string) {
+        if (sessionId === 'bad') throw new Error('Cognigy answered 502');
+        return base.odata.conversation(projectId, sessionId);
+      },
+    };
+    const deps = { api: cognigy, odata: odata as never, store, notifier: notifier().n };
+
+    const first = await collectAgent(agent.id, deps, NOW);
+    assert.equal(first.scored, 1);
+    assert.equal(first.failed, 1);
+    assert.equal(first.error, undefined, 'the collection itself succeeded');
+
+    const later = (minutes: number) => new Date(NOW.getTime() + minutes * 60_000);
+    await collectAgent(agent.id, deps, later(61));
+    await collectAgent(agent.id, deps, later(122));
+    assert.deepEqual(store.failedSessions(agent.id).map((f) => f.attempts), [3]);
+    const retried = odata.calls.filter((options) => (options.sessionIds as string[] | undefined)?.includes('bad')).length;
+    await collectAgent(agent.id, deps, later(183));
+    assert.equal(odata.calls.filter((options) => (options.sessionIds as string[] | undefined)?.includes('bad')).length, retried, 'not asked for again after three tries');
+    store.close();
+  });
+
   it('scores sooner when demo mode shortens the settle time', async () => {
     const { store, agent } = setup();
     const live = feed([{ id: 's1', startedAt: minutesAgo(8), lastAt: minutesAgo(2) }]);

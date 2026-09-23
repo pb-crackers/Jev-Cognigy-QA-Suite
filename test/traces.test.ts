@@ -71,7 +71,22 @@ describe('unwrapping', () => {
   it('imports an array and counts what it could not read', () => {
     const { store, agent } = withAgent();
     const result = importTraces(store, agent.id, [...fixture('trace-session.json'), { nothing: true }]);
-    assert.deepEqual(result, { imported: 3, skipped: 1 });
+    assert.deepEqual(result, { imported: 3, duplicates: 0, skipped: 1 });
+    assert.equal(store.traceSummary(agent.id).traces, 3);
+    store.close();
+  });
+
+  it('stores a call once however often it arrives, and keeps every call of a turn', () => {
+    const { store, agent } = withAgent();
+    const calls = fixture('trace-session.json');
+    // Two of these share one traceId — Cognigy's id is per turn — and differ only in timestamp.
+    assert.equal(calls[1].meta.traceId, calls[2].meta.traceId);
+    importTraces(store, agent.id, calls);
+    const again = importTraces(store, agent.id, calls);
+    assert.deepEqual(again, { imported: 0, duplicates: 3, skipped: 0 });
+    assert.equal(store.traceSummary(agent.id).traces, 3);
+    const hook = receiveTrace(store, agent.id, { 'x-webhook-token': agent.trace.token }, JSON.stringify(calls[0]));
+    assert.equal(hook.status, 204, 'a retried delivery still succeeds');
     assert.equal(store.traceSummary(agent.id).traces, 3);
     store.close();
   });
