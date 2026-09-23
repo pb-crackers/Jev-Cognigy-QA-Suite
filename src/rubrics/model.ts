@@ -171,3 +171,31 @@ export function normalize(rubric: Rubric, raw: number | string): number | undefi
 export function scaleOf(rubric: Rubric): number | undefined {
   return rubric.type === 'score' ? (rubric.levels?.length ?? 1) - 1 : undefined;
 }
+
+/**
+ * Problems with the Agent Watch fields of a rubric, shared by every surface
+ * that saves one. An alert must be a yes/no question, because "fired" has to
+ * mean something unambiguous.
+ */
+export function watchFieldProblems(rubric: Partial<Rubric>): string[] {
+  const problems: string[] = [];
+  if (rubric.kind !== undefined && rubric.kind !== 'quality' && rubric.kind !== 'alert') {
+    problems.push('kind, if given, must be quality or alert');
+  }
+  if (rubric.kind === 'alert') {
+    if (rubric.type !== 'boolean') problems.push('an alert rubric must be a boolean question, where true means it happened');
+    const alert = rubric.alert;
+    if (!alert) problems.push('an alert rubric needs alert: { threshold, window }');
+    else {
+      if (!Number.isInteger(alert.threshold) || alert.threshold < 1) problems.push('alert.threshold must be a whole number of at least 1');
+      if (!['session', 'hour', 'day'].includes(alert.window)) problems.push('alert.window must be session, hour or day');
+    }
+  }
+  if (rubric.intent !== undefined && (typeof rubric.intent !== 'string' || rubric.intent.length > 500)) {
+    problems.push('intent must be text of at most 500 characters');
+  }
+  if (rubric.requiresTrace !== undefined && typeof rubric.requiresTrace !== 'boolean') {
+    problems.push('requiresTrace must be true or false');
+  }
+  return problems;
+}

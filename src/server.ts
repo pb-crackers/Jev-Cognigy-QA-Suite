@@ -14,7 +14,8 @@ import { OdataClient } from './cognigy/odata.ts';
 import { INTERACTION_PANEL } from './cognigy/transcript.ts';
 import { llmEquivalents } from './metering.ts';
 import { DEFAULT_RUBRICS } from './rubrics/defaults.ts';
-import { inferCombine, type Rubric } from './rubrics/model.ts';
+import { inferCombine, watchFieldProblems, type Rubric } from './rubrics/model.ts';
+import { LIBRARY_IDS, LIBRARY_RUBRICS } from './rubrics/library.ts';
 import { labelFor, type Modality } from './cognigy/channels.ts';
 import { executeRun, type RunProgress } from './scoring/run.ts';
 import { Store } from './store/db.ts';
@@ -110,16 +111,29 @@ export function createApp(deps: Deps) {
           const body = await readJson<Partial<Rubric>>(request);
           if (!isRubric(body)) return send(400, { error: 'Not a valid rubric' });
           const appliesTo = asModality(body.appliesTo);
+          const id = body.id?.trim() || randomUUID().slice(0, 8);
+          const stored = store.rubrics().find((candidate) => candidate.id === id);
+          const kind = body.kind === 'alert' ? 'alert' : 'quality';
           const rubric: Rubric = {
             ...body,
-            id: body.id?.trim() || randomUUID().slice(0, 8),
+            id,
             weight: Number(body.weight ?? 1),
             enabled: body.enabled !== false,
             appliesTo,
             notes: asNotes(body.notes, appliesTo),
+            // Origin is a fact about where the rubric came from, never an input.
+            origin: stored?.origin ?? (LIBRARY_IDS.has(id) ? 'library' : 'custom'),
+            kind,
+            alert: kind === 'alert' && body.alert
+              ? { threshold: Math.max(1, Math.round(Number(body.alert.threshold) || 1)), window: body.alert.window }
+              : undefined,
+            intent: body.intent?.trim() || undefined,
+            requiresTrace: body.requiresTrace === true || undefined,
             // Derived from the rubric's own shape rather than asked for.
             combine: inferCombine(body as Rubric),
           } as Rubric;
+          const problems = watchFieldProblems(rubric);
+          if (problems.length) return send(400, { error: problems.join('; ') });
           store.saveRubric(rubric);
           return send(200, rubric);
         }
@@ -317,6 +331,7 @@ export function buildDeps(): Deps {
   const config = partial as Config;
   const store = new Store();
   store.seedRubrics(DEFAULT_RUBRICS);
+  store.seedLibrary(LIBRARY_RUBRICS, [...DEFAULT_RUBRICS.map((rubric) => rubric.id), ...LIBRARY_IDS]);
 
   return {
     config,

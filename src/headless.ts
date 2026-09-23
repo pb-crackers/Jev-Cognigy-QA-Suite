@@ -16,6 +16,8 @@ import type { OdataClient } from './cognigy/odata.ts';
 import type { Store } from './store/db.ts';
 import { llmEquivalents } from './metering.ts';
 import { buildBriefing } from './briefing.ts';
+import { watchFieldProblems } from './rubrics/model.ts';
+import { LIBRARY_IDS } from './rubrics/library.ts';
 import { resolveNodes } from './cognigy/links.ts';
 import type { Config } from './config.ts';
 
@@ -217,6 +219,7 @@ export function validateRubric(value: unknown): string[] {
       problems.push(`a rubric scoped to ${rubric.appliesTo} cannot carry a note for the other modality`);
     }
   }
+  problems.push(...watchFieldProblems(rubric));
   if (rubric.type === 'choice' && rubric.options) {
     const missing = Object.keys(rubric.options).filter(
       (key) => rubric.optionScores?.[key] === undefined,
@@ -245,5 +248,12 @@ export async function briefing(runId: string, deps: HeadlessDeps): Promise<strin
 
 /** Fills in what the tool derives, so callers only supply what they mean. */
 export function completeRubric(candidate: Rubric): Rubric {
-  return { ...candidate, combine: candidate.combine ?? inferCombine(candidate) };
+  return {
+    ...candidate,
+    combine: candidate.combine ?? inferCombine(candidate),
+    // A rubric an agent or a person writes is custom: off for existing agents
+    // until switched on. Only the shipped ids are library rubrics.
+    origin: candidate.origin ?? (LIBRARY_IDS.has(candidate.id) ? 'library' : 'custom'),
+    kind: candidate.kind ?? 'quality',
+  };
 }
