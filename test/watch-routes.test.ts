@@ -5,6 +5,7 @@
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
+import { request as httpRequest } from 'node:http';
 import { after, before, describe, it } from 'node:test';
 import { createApp } from '../src/server.ts';
 import { Store } from '../src/store/db.ts';
@@ -139,6 +140,36 @@ describe('logging over HTTP', () => {
     assert.equal(body.uninstall.restored.length, 1);
     assert.equal(configs.job.advancedLogging, false);
     assert.equal(store.agent('home-loans'), undefined);
+  });
+});
+
+describe('exposure through a tunnel', () => {
+  it('refuses every route but the webhook when the request came through a tunnel', async () => {
+    const tunnelled = { host: 'agentwatch.example.com', 'cf-connecting-ip': '203.0.113.9' };
+    for (const path of ['/api/agents', '/api/alerts', '/', '/api/agents/anyone/logging']) {
+      const response = await fetch(base + path, { headers: tunnelled });
+      assert.equal(response.status, 403, path);
+    }
+  });
+
+  it('refuses a request with a public host name even without forwarding headers', async () => {
+    // fetch will not send a Host header of your choosing; node:http will.
+    const status = await new Promise<number>((resolve, reject) => {
+      const request = httpRequest(`${base}/api/agents`, { headers: { host: 'agentwatch.example.com' } }, (response) => {
+        response.resume();
+        resolve(response.statusCode ?? 0);
+      });
+      request.on('error', reject);
+      request.end();
+    });
+    assert.equal(status, 403);
+  });
+
+  it('still lets the webhook through, where the token does the checking', async () => {
+    const response = await fetch(`${base}/hook/nobody`, {
+      method: 'POST', headers: { host: 'agentwatch.example.com', 'cf-connecting-ip': '203.0.113.9' }, body: '{}',
+    });
+    assert.equal(response.status, 404, 'reached the receiver, which knows no such agent');
   });
 });
 

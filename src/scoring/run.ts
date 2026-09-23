@@ -71,6 +71,8 @@ export interface RunOutcome {
    * the limit means there may be more waiting.
    */
   found: SessionSummary[];
+  /** Discovery stopped at its record cap, so there may be more waiting whatever `found` says. */
+  truncated: boolean;
 }
 
 export interface RunProgress {
@@ -259,7 +261,12 @@ export async function executeRun(
         !seen || grew ? enabled : enabled.filter((rubric) => !seen.rubrics.has(rubric.id)),
       );
     }
-    candidates = candidates.filter((session) => (needs.get(session.sessionId)?.length ?? 0) > 0);
+    // A session whose every answer came from an earlier ad-hoc run still has to be
+    // recorded under the agent: its health and alerts read only the agent's own
+    // sessions. It is kept with nothing to ask — no Jev call, just the row.
+    candidates = candidates.filter((session) =>
+      (needs.get(session.sessionId)?.length ?? 0) > 0 ||
+      (request.agentId !== undefined && !store.agentHasSession(request.agentId, session.sessionId)));
   } else if (request.skipScored) {
     const seen = store.alreadyScored(request.projectId);
     candidates = candidates.filter((session) => !seen.has(session.sessionId));
@@ -353,5 +360,5 @@ export async function executeRun(
   store.saveRun(run);
 
   onProgress?.({ done, total: candidates.length, costUsd: totals.costUsd, chunksSplit: split });
-  return { run, ledger, deferred, scored: scoredSessions, found };
+  return { run, ledger, deferred, scored: scoredSessions, found, truncated: Boolean(found.truncated) };
 }

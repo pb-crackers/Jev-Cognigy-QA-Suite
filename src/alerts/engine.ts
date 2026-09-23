@@ -46,11 +46,14 @@ export function evaluateAlerts(
   rubrics: Rubric[],
   store: Pick<Store, 'agentSessions' | 'latestResults' | 'alertFor' | 'insertAlert' | 'updateAlert'>,
   now: Date = new Date(),
+  /** Reach back further than the usual span — for a catch-up that scored older sessions. */
+  reachBackTo?: string,
 ): AlertEvent[] {
   const watching = agentRubrics(agent, rubrics).filter((rubric) => rubric.kind === 'alert' && rubric.alert);
   if (watching.length === 0) return [];
 
-  const since = new Date(now.getTime() - ALERT_LOOKBACK_DAYS * 86_400_000).toISOString();
+  const usual = new Date(now.getTime() - ALERT_LOOKBACK_DAYS * 86_400_000).toISOString();
+  const since = reachBackTo && reachBackTo < usual ? reachBackTo : usual;
   const sessions = store.agentSessions(agent.id, since);
   const startedAt = new Map(sessions.map((session) => [session.sessionId, session.startedAt]));
   const results = store.latestResults(sessions.map((session) => session.sessionId));

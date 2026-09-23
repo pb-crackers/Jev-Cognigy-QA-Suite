@@ -200,7 +200,10 @@ function start(options: { openBrowser: boolean } = { openBrowser: true }): void 
   );
   const rubrics = deps.store.rubrics().length;
   const agents = deps.store.agents().length;
-  createApp({ ...deps, scheduler }).listen(PORT, () => {
+  // Loopback only. A tunnel runs on this machine and reaches it here; nothing on
+  // the network can, and the app refuses tunnelled requests for anything but
+  // the webhook.
+  createApp({ ...deps, scheduler }).listen(PORT, '127.0.0.1', () => {
     const url = 'http://localhost:' + PORT;
     console.log('\n  ' + bold('Jev Cognigy QA') + ' ' + dim(`- ${rubrics} rubrics, ${agents} agent(s) watched`));
     console.log('  ' + green('->') + ' ' + url);

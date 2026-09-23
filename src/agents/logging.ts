@@ -39,9 +39,30 @@ export function hookUrl(publicUrl: string, agentId: string): string {
     '?userId={{input.userId}}&sessionId={{input.sessionId}}';
 }
 
+/** Whether a webhook URL is this agent's own — by exact path, never by prefix. */
+function pointsAt(url: string, agent: Agent): boolean {
+  // `/hook/summit` is a prefix of `/hook/summit-2`; a substring test would let one
+  // agent claim, and on uninstall cut off, another agent's nodes.
+  const id = encodeURIComponent(agent.id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`/hook/${id}(?:[?#]|$)`).test(url);
+}
+
 function isOurs(config: Record<string, unknown>, agent: Agent): boolean {
-  const url = String(config.loggingWebhookUrl ?? '');
-  return config.advancedLogging === true && url.includes(`/hook/${encodeURIComponent(agent.id)}`);
+  return config.advancedLogging === true && pointsAt(String(config.loggingWebhookUrl ?? ''), agent);
+}
+
+/**
+ * What a node's logging fields go back to. A field the node never had comes
+ * back as "off" rather than as absent: the agent is stored as JSON, which drops
+ * undefined values, so an absent "before" would otherwise leave our own logging
+ * switched on after an uninstall that reported success.
+ */
+function restored(previous: LoggingInstall['previous']) {
+  return {
+    advancedLogging: previous.advancedLogging ?? false,
+    loggingWebhookUrl: previous.loggingWebhookUrl ?? '',
+    loggingHeaders: previous.loggingHeaders ?? '{}',
+  };
 }
 
 function stateOf(config: Record<string, unknown>, agent: Agent): LoggingState {
@@ -155,7 +176,10 @@ export async function uninstallLogging(
         report.leftAlone.push(install);
         continue;
       }
-      await api.updateNodeConfig(install.flowId, install.nodeId, { ...config, ...install.previous });
+      await api.updateNodeConfig(install.flowId, install.nodeId, { ...config, ...restored(install.previous) });
+      // Checked, as install is: a restore the node did not keep is not a restore.
+      const after = await api.node(install.flowId, install.nodeId);
+      if (isOurs(after.config, agent)) throw new Error('the node still logs to this agent after the restore');
       report.restored.push(install);
     } catch (error) {
       report.failed.push({ install, error: error instanceof Error ? error.message : String(error) });

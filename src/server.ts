@@ -21,7 +21,7 @@ import { executeRun, type RunProgress } from './scoring/run.ts';
 import { Store } from './store/db.ts';
 import { scoreSessions } from './store/score.ts';
 import { buildBriefing } from './briefing.ts';
-import { handleWatchRoute } from './watch-routes.ts';
+import { handleWatchRoute, isLocalRequest } from './watch-routes.ts';
 import type { Scheduler } from './collector/scheduler.ts';
 import { resolveNodes } from './cognigy/links.ts';
 import { fromEnv, missingKeys, type Config } from './config.ts';
@@ -87,6 +87,12 @@ export function createApp(deps: Deps) {
       response.writeHead(status, { 'content-type': 'application/json' });
       response.end(JSON.stringify(body));
     };
+
+    // Through a tunnel, only the webhook is reachable. It is the one route that
+    // authenticates, and the only one Cognigy needs.
+    if (!url.pathname.startsWith('/hook/') && !isLocalRequest(request.headers)) {
+      return send(403, { error: 'Only the webhook is reachable from outside this machine.' });
+    }
 
     try {
       if (url.pathname === '/api/config') {

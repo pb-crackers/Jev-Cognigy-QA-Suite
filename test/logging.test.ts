@@ -134,6 +134,44 @@ describe('installing', () => {
   });
 });
 
+describe('ownership', () => {
+  it('does not mistake another agent whose id starts with ours for us', async () => {
+    const store = new Store(':memory:');
+    const summit = createAgent({ name: 'Summit', projectId: 'p1', endpoints: [{ id: 'e1', name: 'A', flowRef: 'ref-main' }] }, store, []);
+    const cognigy = fakeCognigy();
+    // Another agent, "summit-2", already logs the node.
+    cognigy.configs.job.advancedLogging = true;
+    cognigy.configs.job.loggingWebhookUrl = `${PUBLIC}/hook/summit-2?userId={{input.userId}}`;
+    const status = await loggingStatus(summit, cognigy.api);
+    assert.equal(status.find((node) => node.nodeId === 'job')!.state, 'other', 'summit-2 is not summit');
+
+    const { report } = await installLogging(summit, cognigy.api, store, { publicUrl: PUBLIC });
+    assert.deepEqual(report.alreadyOurs, []);
+    assert.ok(report.skipped.some((node) => node.nodeId === 'job'), 'left alone, not claimed');
+    store.close();
+  });
+});
+
+describe('restoring a node that never had logging fields', () => {
+  it('switches logging off instead of leaving ours on', async () => {
+    const store = new Store(':memory:');
+    const agent = createAgent({ name: 'Home Loans', projectId: 'p1', endpoints: [{ id: 'e', name: 'REST', flowRef: 'ref-main' }] }, store, []);
+    const cognigy = fakeCognigy({ mergeOnPatch: true });
+    // An older node whose config simply lacks the logging keys.
+    delete cognigy.configs.job.advancedLogging;
+    delete cognigy.configs.job.loggingWebhookUrl;
+    delete cognigy.configs.job.loggingHeaders;
+    const { agent: installed } = await installLogging(agent, cognigy.api, store, { publicUrl: PUBLIC });
+    // Round-trip through storage, which is JSON and drops undefined values.
+    const reloaded = store.agent(installed.id)!;
+    const { report } = await uninstallLogging(reloaded, cognigy.api, store);
+    assert.equal(report.restored.length, 1);
+    assert.equal(cognigy.configs.job.advancedLogging, false);
+    assert.equal(cognigy.configs.job.loggingWebhookUrl, '');
+    store.close();
+  });
+});
+
 describe('uninstalling', () => {
   it('puts back exactly what was there, including a relay that was taken over', async () => {
     const { store, agent } = setup();

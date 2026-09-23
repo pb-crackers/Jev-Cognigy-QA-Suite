@@ -130,6 +130,20 @@ describe('collecting one agent', () => {
     store.close();
   });
 
+  it('treats a discovery that hit its record cap as a backlog, even with few sessions', async () => {
+    const { store, agent } = setup();
+    store.saveAgentState({ agentId: agent.id, watermark: '2026-09-19T00:00:00.000Z', lastCollectedAt: null, lastError: null });
+    const long = [{ id: 'v1', startedAt: '2026-09-20T00:00:00.000Z', lastAt: '2026-09-20T01:00:00.000Z', masked: true },
+                  { id: 'v2', startedAt: '2026-09-20T02:00:00.000Z', lastAt: '2026-09-20T03:00:00.000Z', masked: true }];
+    const capped = feed(long);
+    const original = capped.odata.sessions;
+    capped.odata.sessions = async (options: Record<string, unknown>) => Object.assign(await original(options), { truncated: true });
+    const report = await collectAgent(agent.id, { api: cognigy, odata: capped.odata, store }, NOW);
+    assert.equal(report.backlog, true);
+    assert.equal(report.watermark, '2026-09-20T02:00:00.000Z', 'stops at the last session seen, not at now');
+    store.close();
+  });
+
   it('keeps the watermark where it was when a collection fails, and records why', async () => {
     const { store, agent } = setup();
     store.saveAgentState({ agentId: agent.id, watermark: '2026-09-23T09:00:00.000Z', lastCollectedAt: null, lastError: null });

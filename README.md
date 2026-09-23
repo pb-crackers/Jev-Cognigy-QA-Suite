@@ -101,6 +101,26 @@ What it adds:
   said it should — plus how often its verdict flips on an identical re-ask.
 - **Coverage.** Which of the agent's instructions no rubric specifically checks.
 
+### Exposing the webhook safely
+
+Cognigy has to reach the webhook, so it needs a tunnel. Expose **only** `/hook/`: every other
+route — transcripts, scoring runs, agent deletion, Cognigy node logging — is meant for this
+machine alone. The app enforces that itself (it listens on loopback and refuses tunnelled
+requests for anything but the webhook), but restrict the tunnel too:
+
+```yaml
+# ~/.cloudflared/config.yml
+tunnel: agent-watch
+credentials-file: /Users/you/.cloudflared/<tunnel-id>.json
+ingress:
+  - hostname: agentwatch.example.com
+    path: ^/hook/
+    service: http://127.0.0.1:4174
+  - service: http_status:404
+```
+
+Then set `AGENT_WATCH_PUBLIC_URL=https://agentwatch.example.com` and restart.
+
 | Command | Does |
 | --- | --- |
 | `watch` | Run the UI, webhook and collector without opening a browser |

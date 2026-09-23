@@ -274,6 +274,22 @@ describe('a scoring run', () => {
     store.close();
   });
 
+  it('records a session under the agent even when an ad-hoc run already answered everything', async () => {
+    const store = new Store(':memory:');
+    const rubrics: Rubric[] = [
+      { id: 'a', name: 'A', question: 'A?', type: 'boolean', combine: 'last', weight: 1, enabled: true },
+    ];
+    const base = { projectId: 'p', projectName: 'P', from: 'a', to: 'b', limit: 1, skipScored: true };
+    await executeRun({ ...base, rubricIds: ['a'] }, { odata: fakeOdata(SHORT), store, rubrics });
+    const before = api.requests.length;
+    await executeRun({ ...base, rubricIds: ['a'], skipMode: 'rubric', agentId: 'summit' }, { odata: fakeOdata(SHORT), store, rubrics });
+    assert.equal(api.requests.length, before, 'nothing new to ask, so nothing sent');
+    assert.equal(store.agentSessions('summit').length, 1, 'but the agent now holds the session, so health and alerts see it');
+    const again = await executeRun({ ...base, rubricIds: ['a'], skipMode: 'rubric', agentId: 'summit' }, { odata: fakeOdata(SHORT), store, rubrics });
+    assert.equal(again.scored.length, 0, 'and it is not recorded twice');
+    store.close();
+  });
+
   it('re-scores a session in full once it has grown since it was scored', async () => {
     const store = new Store(':memory:');
     const rubrics: Rubric[] = [

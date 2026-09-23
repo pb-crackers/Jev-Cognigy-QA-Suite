@@ -80,13 +80,19 @@ export async function collectAgent(agentId: string, deps: CollectDeps, now: Date
 
     // A full batch means sessions may remain unseen after the last one returned,
     // so the watermark stops there rather than jumping to now.
-    report.backlog = outcome.found.length >= BATCH_LIMIT;
-    const candidate = report.backlog
+    // So does a discovery that stopped at its record cap: long calls can fill
+    // twenty thousand records with fewer sessions than the batch holds.
+    report.backlog = outcome.found.length >= BATCH_LIMIT || outcome.truncated;
+    const candidate = report.backlog && outcome.found.length
       ? [outcome.found.at(-1)!.startedAt, settledBefore].sort()[0]
       : settledBefore;
     report.watermark = candidate > from ? candidate : from;
 
-    for (const event of evaluateAlerts(agent, rubrics, store, now)) {
+    // Alerts normally look back a fixed span; a catch-up after a long gap must
+    // reach back to the oldest day it just scored, or those alerts never fire.
+    const oldest = outcome.scored.map((session) => session.startedAt).sort()[0];
+    const since = oldest ? `${new Date(oldest).toISOString().slice(0, 10)}T00:00:00.000Z` : undefined;
+    for (const event of evaluateAlerts(agent, rubrics, store, now, since)) {
       if (!event.fired) continue;
       await deliverAlert(event.alert, event.rubric, agent, event.late, store, deps.notifier, deps.appUrl);
       report.alertsFired++;
