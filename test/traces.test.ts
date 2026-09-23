@@ -110,6 +110,15 @@ describe('reconstruction', () => {
     assert.equal(trace.tokens.input, 3 * 2786);
   });
 
+  it('reads arguments Cognigy has already parsed into an object, as live responses carry them', () => {
+    const traces = sessionTraces();
+    traces[1].payload.response!.toolCalls = [
+      { id: 'c9', type: 'function', function: { name: 'check_eligibility', arguments: { creditScore: 700, state: 'TX' } } },
+    ];
+    const call = reconstruct(traces).events.find((event) => event.name === 'check_eligibility');
+    assert.equal(call?.detail, '{"creditScore":700,"state":"TX"}');
+  });
+
   it('accepts the flat tool-call shape as well as the nested one', () => {
     const traces = sessionTraces();
     traces[1].payload.response!.toolCalls = [{ id: 'c9', name: 'check_eligibility', arguments: '{"creditScore":700}' }];

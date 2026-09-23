@@ -54,9 +54,10 @@ export interface TraceTool {
 export interface TraceToolCall {
   id?: string;
   type?: string;
-  function?: { name?: string; arguments?: string };
+  // A JSON string in the message history, but already parsed in `response.toolCalls`.
+  function?: { name?: string; arguments?: string | Record<string, unknown> };
   name?: string;
-  arguments?: string;
+  arguments?: string | Record<string, unknown>;
 }
 
 export interface StoredTrace {
@@ -98,5 +99,6 @@ export function toolCallName(call: TraceToolCall): string {
 }
 
 export function toolCallArguments(call: TraceToolCall): string {
-  return call.function?.arguments ?? call.arguments ?? '';
+  const args = call.function?.arguments ?? call.arguments ?? '';
+  return typeof args === 'string' ? args : JSON.stringify(args);
 }

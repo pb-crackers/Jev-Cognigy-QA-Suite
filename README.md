@@ -132,6 +132,29 @@ ingress:
 
 Then set `AGENT_WATCH_PUBLIC_URL=https://agentwatch.example.com` and restart.
 
+Behind a network that inspects TLS, `cloudflared` can't connect: it fails with `x509: certificate signed by unknown authority`, because it accepts only Cloudflare's own certificate. ngrok works there. Its free static domain can also host other apps under their own path prefixes:
+
+```yaml
+# ~/Library/Application Support/ngrok/ngrok.yml (after `ngrok config add-authtoken`)
+endpoints:
+  - name: agent-watch
+    url: https://your-domain.ngrok-free.dev
+    upstream:
+      url: 4174
+    traffic_policy:
+      on_http_request:
+        # Judged on the path as it arrived; rules run in order.
+        - expressions: ["!req.url.path.startsWith('/agent-watch/hook/')"]
+          actions:
+            - type: custom-response
+              config: { status_code: 404, body: not found }
+        - actions:
+            - type: url-rewrite
+              config: { from: "/agent-watch/hook/", to: "/hook/" }
+```
+
+Run `ngrok start agent-watch`, set `AGENT_WATCH_PUBLIC_URL=https://your-domain.ngrok-free.dev/agent-watch`, restart, and run `agent logging <id> --install` again. A reinstall moves nodes that still post to an old address.
+
 | Command | Does |
 | --- | --- |
 | `watch` | Run the UI, webhook and collector without opening a browser |
