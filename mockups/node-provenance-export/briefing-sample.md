@@ -4,7 +4,7 @@
   The briefing is Markdown handed to a coding agent or read directly — it has no screen,
   so the artifact under review is the text itself rather than an HTML mockup.
 
-  Real content: run 62d5eb13, project phillip-d-sandbox. The only change is that the word
+  Real content: run 62d5eb13, project demo-sandbox. The only change is that the word
   "Agent" becomes a link; everything else is what `node bin/cli.ts brief` emits today.
 
   Target: excerpt() in src/briefing.ts.
