@@ -11,6 +11,7 @@
  * "no single message" is an honest option for verdicts that rest on the
  * conversation as a whole, like whether the customer was helped.
  */
+import { createHash } from 'node:crypto';
 import { choice } from '@typesafe-ai/sdk';
 import type { Questions } from '@typesafe-ai/sdk';
 import type { Turn } from '../cognigy/transcript.ts';
@@ -18,7 +19,11 @@ import { ask } from '../jev.ts';
 import type { Ledger } from '../metering.ts';
 import type { Rubric } from '../rubrics/model.ts';
 import { estimateTokens, stateBudget } from './chunk.ts';
-import type { FixedState } from './state.ts';
+import { fixedState, withToolLines, type FixedState } from './state.ts';
+import { reconstruct } from '../traces/reconstruct.ts';
+import type { Agent } from '../agents/model.ts';
+import type { Store } from '../store/db.ts';
+import { Ledger as LedgerClass } from '../metering.ts';
 
 /** Below this, Jev isn't sure which message it was, and nothing is marked. */
 export const LOCATE_CONFIDENCE = 0.5;
@@ -28,8 +33,14 @@ const NONE = 'none';
 const OPENING_CHARS = 90;
 
 export interface Located {
-  /** The raw answer this was asked about; a re-scored session with a new answer is asked again. */
+  /** The raw answer this was asked about. */
   raw: string;
+  /**
+   * What the question depended on: the answer, the rubric's question, and how
+   * many agent messages there were. A new answer, an edited question or a
+   * conversation that grew means asking again.
+   */
+  key?: string;
   /** Index into the stored transcript's turns, or null for no single message. */
   turnIndex: number | null;
   /** Which agent message, counting from 1, as the session view numbers them. */
@@ -42,8 +53,24 @@ export interface Located {
 /** Jev's answer in words: what the pointing question states as the verdict. */
 export function verdictText(rubric: Rubric, raw: string): string {
   if (rubric.type === 'boolean') return Number(raw) >= 0.5 ? 'yes' : 'no';
-  if (rubric.type === 'score') return rubric.levels?.[Number(raw)] ?? raw;
+  if (rubric.type === 'score') {
+    const level = Number(raw);
+    const nearest = rubric.levels?.[Math.round(level)];
+    // Chunks averaged together can land between levels; say which it was closest to.
+    if (nearest === undefined) return raw;
+    return Number.isInteger(level) ? nearest : `about ${nearest}`;
+  }
   return raw;
+}
+
+/** The agent messages in a conversation, as the pointing question numbers them. */
+function agentCount(turns: Pick<Turn, 'role'>[]): number {
+  return turns.filter((turn) => turn.role === 'agent').length;
+}
+
+export function locateKey(rubric: Rubric, raw: string, turns: Pick<Turn, 'role'>[]): string {
+  const question = createHash('sha256').update(rubric.question).digest('hex').slice(0, 12);
+  return `${raw}|${question}|${agentCount(turns)}`;
 }
 
 function opening(text: string): string {
@@ -103,8 +130,54 @@ export async function locate(
   if (!picked) return { raw, turnIndex: null, message: null, confidence, reason: 'no single message decides this one' };
   const found = agent.find((item) => item.message === Number(picked[1]));
   if (!found) return { raw, turnIndex: null, message: null, confidence, reason: 'Jev named a message that isn’t there' };
-  if (confidence !== null && confidence < LOCATE_CONFIDENCE) {
+  if (confidence === null || confidence < LOCATE_CONFIDENCE) {
     return { raw, turnIndex: null, message: found.message, confidence, reason: 'Jev isn’t sure which message' };
   }
   return { raw, turnIndex: found.turnIndex, message: found.message, confidence };
+}
+
+/** Lookups in progress, so opening the same session twice at once asks Jev once. */
+const inFlight = new Map<string, Promise<Located>>();
+
+export type LocateOutcome =
+  | { status: 200; located: Located & { cached: boolean } }
+  | { status: 404 | 409; error: string };
+
+/**
+ * Finds which message a stored answer rests on: from what was stored when the
+ * answer, the question and the conversation are unchanged, otherwise by asking
+ * Jev once — with the conversation as the grader read it, tool calls placed in,
+ * instructions and tools alongside.
+ */
+export async function locateSession(
+  store: Pick<Store, 'latestResults' | 'locateFor' | 'saveLocate' | 'sessionRows' | 'tracesFor'>,
+  agent: Agent,
+  rubric: Rubric,
+  sessionId: string,
+): Promise<LocateOutcome> {
+  const result = store.latestResults([sessionId]).find((row) => row.rubricId === rubric.id);
+  if (!result) return { status: 409, error: `"${rubric.name}" has no answer for this session yet` };
+  const read = store.sessionRows(agent.id, sessionId).find((row) => row.transcript !== '[]');
+  if (!read) return { status: 404, error: 'No conversation stored for this session' };
+  const turns = (JSON.parse(read.transcript) as Turn[]).filter((turn) => !turn.tool);
+  const key = locateKey(rubric, result.raw, turns);
+
+  const cached = store.locateFor(agent.id, sessionId, rubric.id, key);
+  if (cached) return { status: 200, located: { ...cached, cached: true } };
+
+  const flight = `${agent.id}\u0000${sessionId}\u0000${rubric.id}\u0000${key}`;
+  let pending = inFlight.get(flight);
+  if (!pending) {
+    const traces = store.tracesFor(agent.id, sessionId);
+    const trace = traces.length ? reconstruct(traces) : undefined;
+    pending = locate(rubric, result.raw, withToolLines(turns, trace), fixedState(trace), new LedgerClass(), sessionId)
+      .then((located) => {
+        const stored = { ...located, key };
+        store.saveLocate(agent.id, sessionId, rubric.id, stored);
+        return stored;
+      })
+      .finally(() => inFlight.delete(flight));
+    inFlight.set(flight, pending);
+  }
+  return { status: 200, located: { ...(await pending), cached: false } };
 }

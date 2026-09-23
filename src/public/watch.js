@@ -422,13 +422,16 @@ function filterBar(options, counts, current, onPick) {
 
 /** Every session the agent has in the window, filterable; each opens in the drawer. */
 async function renderSessionList(box, agentId) {
+  // Only the newest request draws: a slow answer for an old filter must not overwrite a newer one.
+  const ticket = (box.ticket = (box.ticket ?? 0) + 1);
   let data;
   try {
     data = await json(`/api/agents/${encodeURIComponent(agentId)}/sessions?window=${watch.window}&show=${watch.show.sessions}`);
   } catch (error) {
-    box.replaceChildren(el('p', 'flagc', `Could not load sessions: ${error.message}`));
+    if (ticket === box.ticket) box.replaceChildren(el('p', 'flagc', `Could not load sessions: ${error.message}`));
     return;
   }
+  if (ticket !== box.ticket) return;
   const bar = filterBar(SESSION_FILTERS, data.counts, watch.show.sessions, (key) => {
     watch.show.sessions = key;
     void renderSessionList(box, agentId);
@@ -459,20 +462,29 @@ async function renderSessionList(box, agentId) {
  * One rubric under one agent: what it asks, how many sessions it passed, and
  * those sessions, failures first. Has its own address, so it can be linked to.
  */
+let rubricTicket = 0;
+
 async function openRubric(agentId, rubricId) {
   window.dispatchEvent(new CustomEvent('show-view', { detail: 'agent' }));
   history.replaceState(null, '', `#agent=${encodeURIComponent(agentId)}&rubric=${encodeURIComponent(rubricId)}`);
   const page = $('agent-page');
+  const ticket = ++rubricTicket;
   let data;
   try {
-    if (!watch.current || watch.current.agent.id !== agentId) {
+    if (!watch.current || watch.current.agent.id !== agentId || watch.current.detail.window !== watch.window) {
       watch.current = await json(`/api/agents/${encodeURIComponent(agentId)}?window=${watch.window}`);
     }
     data = await json(`/api/agents/${encodeURIComponent(agentId)}/rubrics/${encodeURIComponent(rubricId)}?window=${watch.window}&show=${watch.show.rubric}`);
+    // A rubric that reports answers without pass or fail has only one list to show.
+    if (!data.hasVerdicts && watch.show.rubric !== 'all' && data.counts.all > 0) {
+      watch.show.rubric = 'all';
+      data = await json(`/api/agents/${encodeURIComponent(agentId)}/rubrics/${encodeURIComponent(rubricId)}?window=${watch.window}&show=all`);
+    }
   } catch (error) {
-    page.replaceChildren(el('p', 'flagc pad', `Could not load the rubric: ${error.message}`));
+    if (ticket === rubricTicket) page.replaceChildren(el('p', 'flagc pad', `Could not load the rubric: ${error.message}`));
     return;
   }
+  if (ticket !== rubricTicket) return;
   const { rubric, health } = data;
   page.replaceChildren();
   const top = el('div', 'agent-top');
@@ -492,6 +504,8 @@ async function openRubric(agentId, rubricId) {
   const rate = el('div', 'rate');
   if (health?.passRate !== null && health?.passRate !== undefined) {
     rate.append(el('span', `big ${band(health.passRate).cls}`, pct(health.passRate)), el('span', 'hint of', `passed ${health.passed} of ${health.answered} sessions`));
+  } else if (data.counts.all > 0) {
+    rate.append(el('span', 'hint of', `asked in ${count(data.counts.all, 'session')}; its answers carry no pass or fail`));
   } else {
     rate.append(el('span', 'hint of', 'not asked in this window'));
   }
@@ -499,7 +513,7 @@ async function openRubric(agentId, rubricId) {
   page.append(head);
 
   const body = el('section', 'agent-section');
-  const bar = filterBar(VERDICT_FILTERS, data.counts, watch.show.rubric, (key) => {
+  const bar = filterBar(data.hasVerdicts ? VERDICT_FILTERS : [['all', 'All']], data.counts, watch.show.rubric, (key) => {
     watch.show.rubric = key;
     void openRubric(agentId, rubricId);
   });
@@ -1025,12 +1039,12 @@ window.addEventListener('view-shown', (event) => {
 });
 
 // A link from an alert opens that agent; otherwise the fleet leads when there is one.
-const deepLink = location.hash.match(/^#agent=([\w-]+)(?:&rubric=(\w+))?/);
+const deepLink = location.hash.match(/^#agent=([\w-]+)(?:&rubric=([^&]+))?/);
 const initial = await json('/api/agents?window=24h').catch(() => []);
 watch.live = await json('/api/watch').catch(() => null);
 watch.agents = initial;
 json('/api/alerts').then(updateAlertCount).catch(() => {});
-if (deepLink?.[2]) void openRubric(decodeURIComponent(deepLink[1]), deepLink[2]);
+if (deepLink?.[2]) void openRubric(decodeURIComponent(deepLink[1]), decodeURIComponent(deepLink[2]));
 else if (deepLink) void openAgent(decodeURIComponent(deepLink[1]));
 else if (initial.length) window.dispatchEvent(new CustomEvent('show-view', { detail: 'fleet' }));
 

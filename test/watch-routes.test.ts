@@ -10,6 +10,7 @@ import { after, before, describe, it } from 'node:test';
 import { createApp } from '../src/server.ts';
 import { Store } from '../src/store/db.ts';
 import { LIBRARY_RUBRICS } from '../src/rubrics/library.ts';
+import { locateKey } from '../src/scoring/locate.ts';
 
 const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
 
@@ -104,6 +105,10 @@ describe('agents over HTTP', () => {
     assert.equal(rubric.body.rubric.id, 'jailbroken');
     assert.deepEqual(rubric.body.counts, { failed: 0, passed: 0, all: 0 });
     assert.equal((await call('/api/agents/home-loans/rubrics/nope')).status, 404);
+    store.saveRubric({ id: 'no-rate-quotes', name: 'No rate quotes', question: 'Did the agent quote a rate?', type: 'boolean', combine: 'any', weight: 1, enabled: true, origin: 'custom' });
+    const hyphenated = await call('/api/agents/home-loans/rubrics/no-rate-quotes?show=all');
+    assert.equal(hyphenated.status, 200, 'a rubric id is whatever its author chose');
+    assert.equal(hyphenated.body.rubric.id, 'no-rate-quotes');
   });
 
   it('finds the message behind an answer once, then serves it from what was stored', async () => {
@@ -120,7 +125,9 @@ describe('agents over HTTP', () => {
     assert.equal(unanswered.status, 409);
     assert.match(unanswered.body.error, /no answer for this session yet/);
 
-    store.saveLocate('home-loans', 'loc-1', 'jailbroken', { raw: '0.1', turnIndex: null, message: null, confidence: 0.8, reason: 'no single message decides this one' });
+    const jailbroken = store.rubrics().find((rubric) => rubric.id === 'jailbroken')!;
+    const key = locateKey(jailbroken, '0.1', [{ role: 'user' }, { role: 'agent' }]);
+    store.saveLocate('home-loans', 'loc-1', 'jailbroken', { raw: '0.1', key, turnIndex: null, message: null, confidence: 0.8, reason: 'no single message decides this one' });
     const stored = await ask({ agentId: 'home-loans', rubricId: 'jailbroken' });
     assert.equal(stored.status, 200);
     assert.equal(stored.body.cached, true);
