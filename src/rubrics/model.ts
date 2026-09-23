@@ -111,6 +111,14 @@ export interface Rubric {
    * rule look watched.
    */
   general?: boolean;
+
+  /**
+   * Whose behaviour the rubric is about. Most rubrics judge the agent; some
+   * judge the customer — frustration, a jailbreak attempt. It decides whose
+   * messages the session view points at when showing what an answer rests on.
+   * Absent means the agent.
+   */
+  about?: 'agent' | 'customer';
 }
 
 /**
@@ -211,6 +219,9 @@ export function watchFieldProblems(rubric: Partial<Rubric>): string[] {
   }
   if (rubric.general !== undefined && typeof rubric.general !== 'boolean') {
     problems.push('general must be true or false');
+  }
+  if (rubric.about !== undefined && rubric.about !== 'agent' && rubric.about !== 'customer') {
+    problems.push('about must be agent or customer');
   }
   return problems;
 }

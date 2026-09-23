@@ -101,6 +101,7 @@ export const DEFAULT_RUBRICS: Rubric[] = [
   {
     id: 'frustration',
     name: 'Customer frustration',
+    about: 'customer',
     question: 'How frustrated did the customer become over the course of the conversation?',
     type: 'score',
     combine: 'mean',

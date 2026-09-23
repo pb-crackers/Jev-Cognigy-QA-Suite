@@ -288,6 +288,11 @@
         <textarea class="ctl" id="r-intent" rows="2" placeholder="In your own words — validity checks the wording against this"></textarea></div>
       <label class="check"><input type="checkbox" id="r-trace"><span>Needs the agent's logged LLM calls &mdash; its instructions and tool calls</span></label>
       <label class="check"><input type="checkbox" id="r-general"><span>Checks all of the agent's instructions at once</span></label>
+      <div class="f"><label for="r-about">Whose behaviour does it judge?</label>
+        <select class="ctl" id="r-about">
+          <option value="agent">The agent's</option>
+          <option value="customer">The customer's &mdash; like frustration or a jailbreak attempt</option>
+        </select></div>
     </fieldset>
 
     <div id="rubric-error"></div>

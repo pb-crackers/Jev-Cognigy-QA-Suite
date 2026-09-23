@@ -533,7 +533,7 @@ async function openRubric(agentId, rubricId) {
     if (item.certainty) verdict.append(el('span', 'lbl', `${item.certainty.label} ${item.certainty.value.toFixed(2)}`));
     const quote = el('span', 'quote');
     if (item.located?.quote) {
-      quote.append(el('span', 'who', 'Agent'), document.createTextNode(`"${item.located.quote.replace(/\s+/g, ' ').slice(0, 140)}"`));
+      quote.append(el('span', 'who', item.located.about === 'customer' ? 'Customer' : 'Agent'), document.createTextNode(`"${item.located.quote.replace(/\s+/g, ' ').slice(0, 140)}"`));
       if (item.located.probability !== null) quote.append(el('span', 'p', `probability ${item.located.probability.toFixed(2)}`));
     } else if (item.located?.reason) {
       quote.append(el('span', 'muted', item.located.reason));

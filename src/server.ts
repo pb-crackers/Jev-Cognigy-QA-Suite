@@ -142,6 +142,8 @@ export function createApp(deps: Deps) {
             intent: body.intent?.trim() || undefined,
             requiresTrace: body.requiresTrace === true || undefined,
             general: body.general === true || undefined,
+            // Kept even when "agent", so a shipped default is never re-applied over a choice.
+            about: body.about === 'customer' || body.about === 'agent' ? body.about : undefined,
             // Derived from the rubric's own shape rather than asked for.
             combine: inferCombine(body as Rubric),
           } as Rubric;
@@ -346,6 +348,7 @@ export function buildDeps(): Deps {
   const store = new Store();
   store.seedRubrics(DEFAULT_RUBRICS);
   store.seedLibrary(LIBRARY_RUBRICS, [...DEFAULT_RUBRICS.map((rubric) => rubric.id), ...LIBRARY_IDS]);
+  store.fillShippedFields([...DEFAULT_RUBRICS, ...LIBRARY_RUBRICS], ['about']);
 
   return {
     config,

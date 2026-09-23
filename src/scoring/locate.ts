@@ -50,8 +50,10 @@ export interface Located {
   key?: string;
   /** Index into the stored transcript's turns, or null for no single message. */
   turnIndex: number | null;
-  /** Which agent message, counting from 1, as the session view numbers them. */
+  /** Which message, counting from 1 among the agent's or the customer's (see `about`). */
   message: number | null;
+  /** Whose messages were the options: the rubric's subject. */
+  about?: 'agent' | 'customer';
   /** Jev's probability for the message it picked — what the session view shows. */
   probability: number | null;
   /** The next most likely option's probability: how clear the pick was. */
@@ -73,14 +75,15 @@ export function verdictText(rubric: Rubric, raw: string): string {
   return raw;
 }
 
-/** The agent messages in a conversation, as the pointing question numbers them. */
-function agentCount(turns: Pick<Turn, 'role'>[]): number {
-  return turns.filter((turn) => turn.role === 'agent').length;
+/** Whose messages a rubric points at, and the transcript role they have. */
+function subjectOf(rubric: Rubric): { about: 'agent' | 'customer'; role: Turn['role'] } {
+  return rubric.about === 'customer' ? { about: 'customer', role: 'user' } : { about: 'agent', role: 'agent' };
 }
 
 export function locateKey(rubric: Rubric, raw: string, turns: Pick<Turn, 'role'>[]): string {
   const question = createHash('sha256').update(rubric.question).digest('hex').slice(0, 12);
-  return `${LOCATE_VERSION}|${raw}|${question}|${agentCount(turns)}`;
+  const { about, role } = subjectOf(rubric);
+  return `${LOCATE_VERSION}|${raw}|${question}|${about}|${turns.filter((turn) => turn.role === role).length}`;
 }
 
 function opening(text: string): string {
@@ -88,25 +91,30 @@ function opening(text: string): string {
   return flat.length <= OPENING_CHARS ? flat : `${flat.slice(0, OPENING_CHARS - 1)}…`;
 }
 
-/** The conversation with each agent message numbered, so options can name them. */
-function numbered(turns: Turn[]): { text: string; agent: { message: number; turnIndex: number; text: string }[] } {
-  const agent: { message: number; turnIndex: number; text: string }[] = [];
+type Numbered = { message: number; turnIndex: number; text: string };
+
+/** The conversation with the agent's and the customer's messages numbered, so options can name them. */
+function numbered(turns: Turn[]): { text: string; agent: Numbered[]; customer: Numbered[] } {
+  const agent: Numbered[] = [];
+  const customer: Numbered[] = [];
   const lines = turns.map((turn, index) => {
     if (turn.role === 'system') return turn.text;
-    if (turn.role === 'user') return `Customer: ${turn.text}`;
-    agent.push({ message: agent.length + 1, turnIndex: index, text: turn.text });
-    return `Agent message ${agent.length}: ${turn.text}`;
+    const list = turn.role === 'user' ? customer : agent;
+    list.push({ message: list.length + 1, turnIndex: index, text: turn.text });
+    return `${turn.role === 'user' ? 'Customer' : 'Agent'} message ${list.length}: ${turn.text}`;
   });
-  return { text: lines.join('\n'), agent };
+  return { text: lines.join('\n'), agent, customer };
 }
 
-function whichQuestion(rubric: Rubric, raw: string, agent: { message: number; text: string }[]) {
+function whichQuestion(rubric: Rubric, raw: string, messages: { message: number; text: string }[]) {
+  const who = subjectOf(rubric).about === 'customer' ? 'customer' : 'agent';
+  const Who = who === 'customer' ? 'Customer' : 'Agent';
   const options: Record<string, string> = {};
-  for (const item of agent) options[`message_${item.message}`] = `Agent message ${item.message}: "${opening(item.text)}"`;
+  for (const item of messages) options[`message_${item.message}`] = `${Who} message ${item.message}: "${opening(item.text)}"`;
   options[NONE] = 'No single message: the answer rests on the conversation as a whole.';
   return choice({
-    question: `For this conversation, the answer to "${rubric.question}" was ${verdictText(rubric, raw)}. Which agent message is the main reason for that answer?`,
-    focus: 'Pick the one agent message the answer rests on most. Pick "none" when no single message decides it.',
+    question: `For this conversation, the answer to "${rubric.question}" was ${verdictText(rubric, raw)}. Which ${who} message is the main reason for that answer?`,
+    focus: `Pick the one ${who} message the answer rests on most. Pick "none" when no single message decides it.`,
   }, options);
 }
 
@@ -114,7 +122,7 @@ const questionId = (rubric: Rubric) => `which_${rubric.id}`;
 
 type Pick = { choice?: string; confidence?: number; probabilities?: Record<string, number> } | undefined;
 
-function readPick(answer: Pick, agent: { message: number; turnIndex: number }[], raw: string): Located {
+function readPick(answer: Pick, messages: { message: number; turnIndex: number }[], raw: string): Located {
   const probabilities = answer?.probabilities ?? {};
   // Without a distribution, Jev's confidence is the closest stand-in for the pick's probability.
   const probability = answer?.choice ? probabilities[answer.choice] ?? answer.confidence ?? null : null;
@@ -122,7 +130,7 @@ function readPick(answer: Pick, agent: { message: number; turnIndex: number }[],
   const runnerUp = others.length ? Math.max(...others) : null;
   const picked = answer?.choice?.match(/^message_(\d+)$/);
   if (!picked) return { raw, turnIndex: null, message: null, probability, runnerUp, reason: 'no single message decides this one' };
-  const found = agent.find((item) => item.message === Number(picked[1]));
+  const found = messages.find((item) => item.message === Number(picked[1]));
   if (!found) return { raw, turnIndex: null, message: null, probability, runnerUp, reason: 'Jev named a message that isn’t there' };
   const clear = probability !== null && probability >= LOCATE_PROBABILITY && probability - (runnerUp ?? 0) >= LOCATE_MARGIN;
   if (!clear) return { raw, turnIndex: null, message: found.message, probability, runnerUp, reason: 'Jev isn’t sure which message' };
@@ -144,22 +152,29 @@ export async function locateAll(
   sessionId: string,
 ): Promise<Map<string, Located>> {
   const out = new Map<string, Located>();
-  const { text, agent } = numbered(turns);
+  const conversation = numbered(turns);
+  const messagesFor = (rubric: Rubric) => (subjectOf(rubric).about === 'customer' ? conversation.customer : conversation.agent);
   const unanswered = (reason: string) => {
-    for (const { rubric, raw } of answers) out.set(rubric.id, { raw, turnIndex: null, message: null, probability: null, reason });
+    for (const { rubric, raw } of answers) out.set(rubric.id, { raw, turnIndex: null, message: null, probability: null, about: subjectOf(rubric).about, reason });
     return out;
   };
-  if (answers.length === 0) return out;
-  if (agent.length === 0) return unanswered('the agent said nothing');
-  const state = { conversation: text, ...fixed };
+  // A rubric about someone who said nothing has nothing to point at.
+  const askable = answers.filter(({ rubric, raw }) => {
+    if (messagesFor(rubric).length) return true;
+    const about = subjectOf(rubric).about;
+    out.set(rubric.id, { raw, turnIndex: null, message: null, probability: null, about, reason: `the ${about} said nothing` });
+    return false;
+  });
+  if (askable.length === 0) return out;
+  const state = { conversation: conversation.text, ...fixed };
   const stateTokens = estimateTokens(JSON.stringify(state));
 
   // Fill each request with as many questions as the 32k budget leaves room for.
   const batches: { rubric: Rubric; raw: string }[][] = [];
   let batch: { rubric: Rubric; raw: string }[] = [];
   let questionTokens = 0;
-  for (const answer of answers) {
-    const tokens = estimateTokens(JSON.stringify(whichQuestion(answer.rubric, answer.raw, agent)));
+  for (const answer of askable) {
+    const tokens = estimateTokens(JSON.stringify(whichQuestion(answer.rubric, answer.raw, messagesFor(answer.rubric))));
     if (batch.length && stateTokens > stateBudget(questionTokens + tokens)) {
       batches.push(batch);
       batch = [];
@@ -169,16 +184,16 @@ export async function locateAll(
     questionTokens += tokens;
   }
   batches.push(batch);
-  if (stateTokens > stateBudget(estimateTokens(JSON.stringify(whichQuestion(answers[0].rubric, answers[0].raw, agent))))) {
+  if (stateTokens > stateBudget(estimateTokens(JSON.stringify(whichQuestion(askable[0].rubric, askable[0].raw, messagesFor(askable[0].rubric)))))) {
     return unanswered('the conversation is too long to point at one message');
   }
 
   for (const group of batches) {
-    const questions: Questions = Object.fromEntries(group.map(({ rubric, raw }) => [questionId(rubric), whichQuestion(rubric, raw, agent)]));
+    const questions: Questions = Object.fromEntries(group.map(({ rubric, raw }) => [questionId(rubric), whichQuestion(rubric, raw, messagesFor(rubric))]));
     const label = group.length === 1 ? `${sessionId} [locate ${group[0].rubric.id}]` : `${sessionId} [locate ${group.length}]`;
     const { answers: picks } = await ask({ stage: 'score', label, state, questions, ledger, sessionId });
     for (const { rubric, raw } of group) {
-      out.set(rubric.id, readPick((picks as Record<string, Pick>)[questionId(rubric)], agent, raw));
+      out.set(rubric.id, { ...readPick((picks as Record<string, Pick>)[questionId(rubric)], messagesFor(rubric), raw), about: subjectOf(rubric).about });
     }
   }
   return out;
