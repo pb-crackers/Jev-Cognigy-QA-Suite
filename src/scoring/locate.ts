@@ -27,7 +27,6 @@ import { Ledger as LedgerClass } from '../metering.ts';
 
 /** Below this, Jev isn't sure which message it was, and nothing is marked. */
 export const LOCATE_CONFIDENCE = 0.5;
-const QUESTION_ID = 'which_message';
 const NONE = 'none';
 /** Enough of a message to recognise it in a list of options. */
 const OPENING_CHARS = 90;
@@ -90,41 +89,23 @@ function numbered(turns: Turn[]): { text: string; agent: { message: number; turn
   return { text: lines.join('\n'), agent };
 }
 
-export function locateQuestion(rubric: Rubric, raw: string, agent: { message: number; text: string }[]): Questions {
+function whichQuestion(rubric: Rubric, raw: string, agent: { message: number; text: string }[]) {
   const options: Record<string, string> = {};
   for (const item of agent) options[`message_${item.message}`] = `Agent message ${item.message}: "${opening(item.text)}"`;
   options[NONE] = 'No single message: the answer rests on the conversation as a whole.';
-  return {
-    [QUESTION_ID]: choice({
-      question: `For this conversation, the answer to "${rubric.question}" was ${verdictText(rubric, raw)}. Which agent message is the main reason for that answer?`,
-      focus: 'Pick the one agent message the answer rests on most. Pick "none" when no single message decides it.',
-    }, options),
-  };
+  return choice({
+    question: `For this conversation, the answer to "${rubric.question}" was ${verdictText(rubric, raw)}. Which agent message is the main reason for that answer?`,
+    focus: 'Pick the one agent message the answer rests on most. Pick "none" when no single message decides it.',
+  }, options);
 }
 
-/**
- * Asks which message a verdict rests on. `turns` are the conversation as the
- * grader read it, tool lines included; `fixed` is the instructions and tools it
- * was given.
- */
-export async function locate(
-  rubric: Rubric,
-  raw: string,
-  turns: Turn[],
-  fixed: FixedState,
-  ledger: Ledger,
-  sessionId: string,
-): Promise<Located> {
-  const { text, agent } = numbered(turns);
-  if (agent.length === 0) return { raw, turnIndex: null, message: null, confidence: null, reason: 'the agent said nothing' };
-  const questions = locateQuestion(rubric, raw, agent);
-  const state = { conversation: text, ...fixed };
-  if (estimateTokens(JSON.stringify(state)) > stateBudget(estimateTokens(JSON.stringify(questions)))) {
-    return { raw, turnIndex: null, message: null, confidence: null, reason: 'the conversation is too long to point at one message' };
-  }
+const questionId = (rubric: Rubric) => `which_${rubric.id}`;
 
-  const { answers } = await ask({ stage: 'score', label: `${sessionId} [locate ${rubric.id}]`, state, questions, ledger, sessionId });
-  const answer = (answers as Record<string, { choice?: string; confidence?: number }>)[QUESTION_ID];
+function readPick(
+  answer: { choice?: string; confidence?: number } | undefined,
+  agent: { message: number; turnIndex: number }[],
+  raw: string,
+): Located {
   const confidence = answer?.confidence ?? null;
   const picked = answer?.choice?.match(/^message_(\d+)$/);
   if (!picked) return { raw, turnIndex: null, message: null, confidence, reason: 'no single message decides this one' };
@@ -134,6 +115,73 @@ export async function locate(
     return { raw, turnIndex: null, message: found.message, confidence, reason: 'Jev isn’t sure which message' };
   }
   return { raw, turnIndex: found.turnIndex, message: found.message, confidence };
+}
+
+/**
+ * Asks which message each of several answers rests on, in as few requests as
+ * fit: every question reads the same conversation, and Jev answers all the
+ * questions in a request against one reading of it. `turns` are the
+ * conversation as the grader read it, tool lines included; `fixed` is the
+ * instructions and tools it was given.
+ */
+export async function locateAll(
+  answers: { rubric: Rubric; raw: string }[],
+  turns: Turn[],
+  fixed: FixedState,
+  ledger: Ledger,
+  sessionId: string,
+): Promise<Map<string, Located>> {
+  const out = new Map<string, Located>();
+  const { text, agent } = numbered(turns);
+  const unanswered = (reason: string) => {
+    for (const { rubric, raw } of answers) out.set(rubric.id, { raw, turnIndex: null, message: null, confidence: null, reason });
+    return out;
+  };
+  if (answers.length === 0) return out;
+  if (agent.length === 0) return unanswered('the agent said nothing');
+  const state = { conversation: text, ...fixed };
+  const stateTokens = estimateTokens(JSON.stringify(state));
+
+  // Fill each request with as many questions as the 32k budget leaves room for.
+  const batches: { rubric: Rubric; raw: string }[][] = [];
+  let batch: { rubric: Rubric; raw: string }[] = [];
+  let questionTokens = 0;
+  for (const answer of answers) {
+    const tokens = estimateTokens(JSON.stringify(whichQuestion(answer.rubric, answer.raw, agent)));
+    if (batch.length && stateTokens > stateBudget(questionTokens + tokens)) {
+      batches.push(batch);
+      batch = [];
+      questionTokens = 0;
+    }
+    batch.push(answer);
+    questionTokens += tokens;
+  }
+  batches.push(batch);
+  if (stateTokens > stateBudget(estimateTokens(JSON.stringify(whichQuestion(answers[0].rubric, answers[0].raw, agent))))) {
+    return unanswered('the conversation is too long to point at one message');
+  }
+
+  for (const group of batches) {
+    const questions: Questions = Object.fromEntries(group.map(({ rubric, raw }) => [questionId(rubric), whichQuestion(rubric, raw, agent)]));
+    const label = group.length === 1 ? `${sessionId} [locate ${group[0].rubric.id}]` : `${sessionId} [locate ${group.length}]`;
+    const { answers: picks } = await ask({ stage: 'score', label, state, questions, ledger, sessionId });
+    for (const { rubric, raw } of group) {
+      out.set(rubric.id, readPick((picks as Record<string, { choice?: string; confidence?: number }>)[questionId(rubric)], agent, raw));
+    }
+  }
+  return out;
+}
+
+/** Which message one answer rests on. */
+export async function locate(
+  rubric: Rubric,
+  raw: string,
+  turns: Turn[],
+  fixed: FixedState,
+  ledger: Ledger,
+  sessionId: string,
+): Promise<Located> {
+  return (await locateAll([{ rubric, raw }], turns, fixed, ledger, sessionId)).get(rubric.id)!;
 }
 
 /** Lookups in progress, so opening the same session twice at once asks Jev once. */

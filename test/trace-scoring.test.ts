@@ -14,6 +14,9 @@ import type { Turn } from '../src/cognigy/transcript.ts';
 import type { ToolCallRecord } from '../src/traces/reconstruct.ts';
 
 let api: StubApi;
+
+/** Requests that scored rubrics — not the follow-up asking which message each answer rests on. */
+const scoring = () => api.requests.filter((request) => !Object.keys(request.questions).some((id) => id.startsWith('which_')));
 let executeRun: typeof import('../src/scoring/run.ts').executeRun;
 let Store: typeof import('../src/store/db.ts').Store;
 let createAgent: typeof import('../src/agents/service.ts').createAgent;
@@ -89,7 +92,7 @@ describe('trace-aware state', () => {
   it('gives the grader the instructions and tools, and writes tool calls into the conversation', async () => {
     const { store, agent } = agentSetup('all');
     await run(store, agent.id);
-    const request = api.requests.at(-1)!;
+    const request = scoring().at(-1)!;
     const state = request.state as Record<string, unknown>;
 
     assert.deepEqual(Object.keys(state).sort(), ['conversation', 'flow', 'instructions', 'tools']);
@@ -108,14 +111,14 @@ describe('trace-aware state', () => {
   it('asks a trace-dependent rubric only when every LLM turn is logged', async () => {
     const full = agentSetup('all');
     await run(full.store, full.agent.id);
-    assert.ok('r_tool_first' in api.requests.at(-1)!.questions);
+    assert.ok('r_tool_first' in scoring().at(-1)!.questions);
     assert.equal(full.store.sessionsForRun(full.store.runs()[0].id)[0].traceCoverage, 'full');
     full.store.close();
 
     const partial = agentSetup('first-input');
     await run(partial.store, partial.agent.id);
-    assert.ok(!('r_tool_first' in api.requests.at(-1)!.questions), 'half-logged: not answerable');
-    assert.ok('r_helped' in api.requests.at(-1)!.questions);
+    assert.ok(!('r_tool_first' in scoring().at(-1)!.questions), 'half-logged: not answerable');
+    assert.ok('r_helped' in scoring().at(-1)!.questions);
     assert.equal(partial.store.sessionsForRun(partial.store.runs()[0].id)[0].traceCoverage, 'partial');
     partial.store.close();
   });
@@ -123,9 +126,31 @@ describe('trace-aware state', () => {
   it('grades an agent session with no traces exactly as an untraced session', async () => {
     const { store, agent } = agentSetup('none');
     await run(store, agent.id);
-    const state = api.requests.at(-1)!.state as Record<string, unknown>;
+    const state = scoring().at(-1)!.state as Record<string, unknown>;
     assert.deepEqual(Object.keys(state).sort(), ['conversation', 'flow']);
     assert.ok(!String(state.conversation).includes('[tool'));
+    store.close();
+  });
+
+  it('finds, in one more request, which message each pass/fail answer rests on', async () => {
+    const { store, agent } = agentSetup('all');
+    const before = api.requests.length;
+    await run(store, agent.id);
+    const followUps = api.requests.slice(before).filter((request) => Object.keys(request.questions).some((id) => id.startsWith('which_')));
+    assert.equal(followUps.length, 1, 'one request for every answer');
+    assert.deepEqual(Object.keys(followUps[0].questions).sort(), ['which_helped', 'which_tool_first']);
+    const stored = store.locatesForRubric(agent.id, 'helped').get('sess-1');
+    assert.ok(stored && stored.key, 'kept, keyed to the answer it was asked about');
+    store.close();
+  });
+
+  it('keeps the scores when finding the messages fails', async () => {
+    const { store, agent } = agentSetup('all');
+    api.setOverrides({ which_helped: { fail: true } });
+    const { run: saved } = await run(store, agent.id);
+    assert.ok(store.resultsForRun(saved.id).length > 0, 'scored all the same');
+    assert.equal(store.locatesForRubric(agent.id, 'helped').size, 0, 'the lookup failed, so nothing was stored');
+    api.setOverrides({});
     store.close();
   });
 
@@ -148,7 +173,7 @@ describe('trace-aware state', () => {
   it('does not use traces on an ad-hoc run', async () => {
     const { store } = agentSetup('all');
     await run(store);
-    assert.deepEqual(Object.keys(api.requests.at(-1)!.state as object).sort(), ['conversation', 'flow']);
+    assert.deepEqual(Object.keys(scoring().at(-1)!.state as object).sort(), ['conversation', 'flow']);
     store.close();
   });
 });

@@ -12,11 +12,12 @@ import { assemble, render, type Transcript } from '../cognigy/transcript.ts';
 import { ask } from '../jev.ts';
 import { Ledger } from '../metering.ts';
 import { applicable, compile, questionId } from '../rubrics/compile.ts';
-import { traceReady, type Rubric } from '../rubrics/model.ts';
+import { normalize, traceReady, type Rubric } from '../rubrics/model.ts';
 import type { TraceCoverage } from '../store/db.ts';
 import { reconstruct, traceCoverage, type SessionTrace } from '../traces/reconstruct.ts';
 import { fixedState, fixedTokens, withToolLines } from './state.ts';
 import { checkSession, checkToolCalls } from '../checks/exact.ts';
+import { locateAll, locateKey } from './locate.ts';
 import { chunkTurns, estimateTokens, stateBudget } from './chunk.ts';
 import { combineAnswers, type ChunkAnswer } from './combine.ts';
 import type { ResultRow, RunRow, SessionRow, Store } from '../store/db.ts';
@@ -220,6 +221,38 @@ export async function reaskSession(
   return out;
 }
 
+/**
+ * Finds, while the session is at hand, which agent message each new pass/fail
+ * answer rests on — so a reviewer opening it later sees the message marked at
+ * once. One request covers every answer. If it fails, the scores still stand;
+ * the session view asks the first time it's opened instead.
+ */
+async function locateAnswers(
+  store: Store,
+  agentId: string,
+  sessionId: string,
+  results: Omit<ResultRow, 'runId' | 'sessionId'>[],
+  rubrics: Rubric[],
+  turns: Transcript['turns'],
+  trace: SessionTrace | undefined,
+  ledger: Ledger,
+): Promise<void> {
+  const byId = new Map(rubrics.map((rubric) => [rubric.id, rubric]));
+  const answers = results
+    .map((result) => ({ rubric: byId.get(result.rubricId)!, raw: result.raw }))
+    .filter(({ rubric, raw }) => rubric && normalize(rubric, rubric.type === 'choice' ? raw : Number(raw)) !== undefined);
+  if (answers.length === 0) return;
+  try {
+    const found = await locateAll(answers, withToolLines(turns, trace), fixedState(trace), ledger, sessionId);
+    for (const { rubric, raw } of answers) {
+      const located = found.get(rubric.id);
+      if (located) store.saveLocate(agentId, sessionId, rubric.id, { ...located, key: locateKey(rubric, raw, turns) });
+    }
+  } catch {
+    // Pointing at messages is a convenience on top of the scores; it never costs a session its scores.
+  }
+}
+
 /** What a stored session row says about where it came from, scored or not. */
 function sessionBasics(runId: string, summary: SessionSummary, transcript: Transcript | undefined) {
   return {
@@ -384,6 +417,7 @@ export async function executeRun(
         results.map((result) => ({ ...result, runId, sessionId: summary.sessionId })),
       );
       if (request.agentId && session) store.saveToolCalls(request.agentId, summary.sessionId, session.toolCalls);
+      if (request.agentId) await locateAnswers(store, request.agentId, summary.sessionId, results, enabled, transcript.turns, session, ledger);
       scoredSessions.push({ sessionId: summary.sessionId, startedAt: transcript.turns[0]?.at ?? summary.startedAt, lastAt: summary.lastAt });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);

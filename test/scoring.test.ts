@@ -13,6 +13,9 @@ import type { ConversationRecord, SessionSummary } from '../src/cognigy/odata.ts
 import type { Rubric } from '../src/rubrics/model.ts';
 
 let api: StubApi;
+
+/** Requests that scored rubrics — not the follow-up asking which message each answer rests on. */
+const scoring = () => api.requests.filter((request) => !Object.keys(request.questions).some((id) => id.startsWith('which_')));
 let executeRun: typeof import('../src/scoring/run.ts').executeRun;
 let Store: typeof import('../src/store/db.ts').Store;
 let DEFAULT_RUBRICS: typeof import('../src/rubrics/defaults.ts').DEFAULT_RUBRICS;
@@ -66,18 +69,18 @@ describe('a scoring run', () => {
     const rubrics = store.rubrics();
     assert.ok(rubrics.length >= 8, 'the starter set is substantial enough for this to mean something');
 
-    const before = api.requests.length;
+    const before = scoring().length;
     await executeRun(
       { projectId: 'p', projectName: 'P', from: 'a', to: 'b', limit: 1, skipScored: false },
       { odata: fakeOdata(SHORT), store, rubrics },
     );
 
     assert.equal(
-      api.requests.length - before,
+      scoring().length - before,
       1,
       `${rubrics.length} rubrics must cost one request, not one each`,
     );
-    const sent = api.requests.at(-1)!.questions;
+    const sent = scoring().at(-1)!.questions;
     assert.equal(Object.keys(sent).length, rubrics.length, 'all rubrics rode in that request');
     store.close();
   });
@@ -96,14 +99,14 @@ describe('a scoring run', () => {
   it('costs one request per session, not per rubric per session', async () => {
     const store = new Store(':memory:');
     store.seedRubrics(DEFAULT_RUBRICS);
-    const before = api.requests.length;
+    const before = scoring().length;
     await executeRun(
       { projectId: 'p', projectName: 'P', from: 'a', to: 'b', limit: 3, skipScored: false },
       { odata: fakeOdata(SHORT, ['s1', 's2', 's3']), store, rubrics: store.rubrics() },
     );
     // The fake client returns the same session id for all three, so the store
     // folds them; what matters is that requests track sessions, not rubrics.
-    assert.ok(api.requests.length - before <= 3, 'at most one request per session');
+    assert.ok(scoring().length - before <= 3, 'at most one request per session');
     store.close();
   });
 
@@ -115,13 +118,13 @@ describe('a scoring run', () => {
       bot: `Answer ${index} explaining the coverage at some length so the transcript grows`,
     }));
 
-    const before = api.requests.length;
+    const before = scoring().length;
     const { run } = await executeRun(
       { projectId: 'p', projectName: 'P', from: 'a', to: 'b', limit: 1, skipScored: false },
       { odata: fakeOdata(long), store, rubrics: store.rubrics() },
     );
 
-    const requests = api.requests.length - before;
+    const requests = scoring().length - before;
     assert.ok(requests > 1, 'a transcript over the budget is split');
     const [session] = store.sessionsForRun(run.id);
     assert.equal(session.chunks, requests, 'the chunk count is recorded honestly');
@@ -149,13 +152,13 @@ describe('a scoring run', () => {
       },
     } as never;
 
-    const before = api.requests.length;
+    const before = scoring().length;
     const { run } = await executeRun(
       { projectId: 'p', projectName: 'P', from: 'a', to: 'b', limit: 1, skipScored: false },
       { odata: masked, store, rubrics: store.rubrics() },
     );
 
-    assert.equal(api.requests.length, before, 'a masked session is never sent to the model');
+    assert.equal(scoring().length, before, 'a masked session is never sent to the model');
     const [session] = store.sessionsForRun(run.id);
     assert.equal(session.unscoreable, 'masked');
     assert.equal(store.resultsForRun(run.id).length, 0);
@@ -170,7 +173,7 @@ describe('a scoring run', () => {
     // filtering must not alter what the model is asked.
     const store = new Store(':memory:');
     store.seedRubrics(DEFAULT_RUBRICS);
-    const before = api.requests.length;
+    const before = scoring().length;
 
     await executeRun(
       { projectId: 'p', projectName: 'P', from: 'a', to: 'b', limit: 1, skipScored: false,
@@ -178,8 +181,8 @@ describe('a scoring run', () => {
       { odata: fakeOdata(SHORT), store, rubrics: store.rubrics() },
     );
 
-    assert.equal(api.requests.length - before, 1);
-    const state = api.requests.at(-1)!.state as Record<string, unknown>;
+    assert.equal(scoring().length - before, 1);
+    const state = scoring().at(-1)!.state as Record<string, unknown>;
 
     assert.deepEqual(
       Object.keys(state).sort(),
@@ -218,7 +221,7 @@ describe('a scoring run', () => {
         { odata: fakeOdata(SHORT, ['s1'], channel), store, rubrics },
       );
       store.close();
-      return api.requests.at(-1)!;
+      return scoring().at(-1)!;
     };
 
     const voice = await ask('voiceGateway2');
@@ -258,19 +261,19 @@ describe('a scoring run', () => {
     // An ad-hoc run answers rubric a only.
     await executeRun({ ...base, rubricIds: ['a'] }, { odata: fakeOdata(SHORT), store, rubrics });
     // The agent run wants a and b: only b is missing, so only b is asked.
-    const before = api.requests.length;
+    const before = scoring().length;
     const outcome = await executeRun(
       { ...base, rubricIds: ['a', 'b'], skipMode: 'rubric', agentId: 'summit' },
       { odata: fakeOdata(SHORT), store, rubrics },
     );
-    assert.equal(api.requests.length - before, 1);
-    assert.deepEqual(Object.keys(api.requests.at(-1)!.questions), ['r_b']);
+    assert.equal(scoring().length - before, 1);
+    assert.deepEqual(Object.keys(scoring().at(-1)!.questions), ['r_b']);
     assert.equal(outcome.scored.length, 1);
 
     // Asked again, nothing is missing and nothing is sent.
-    const again = api.requests.length;
+    const again = scoring().length;
     await executeRun({ ...base, rubricIds: ['a', 'b'], skipMode: 'rubric' }, { odata: fakeOdata(SHORT), store, rubrics });
-    assert.equal(api.requests.length, again);
+    assert.equal(scoring().length, again);
     store.close();
   });
 
@@ -281,9 +284,9 @@ describe('a scoring run', () => {
     ];
     const base = { projectId: 'p', projectName: 'P', from: 'a', to: 'b', limit: 1, skipScored: true };
     await executeRun({ ...base, rubricIds: ['a'] }, { odata: fakeOdata(SHORT), store, rubrics });
-    const before = api.requests.length;
+    const before = scoring().length;
     await executeRun({ ...base, rubricIds: ['a'], skipMode: 'rubric', agentId: 'summit' }, { odata: fakeOdata(SHORT), store, rubrics });
-    assert.equal(api.requests.length, before, 'nothing new to ask, so nothing sent');
+    assert.equal(scoring().length, before, 'nothing new to ask, so nothing sent');
     assert.equal(store.agentSessions('summit').length, 1, 'but the agent now holds the session, so health and alerts see it');
     const again = await executeRun({ ...base, rubricIds: ['a'], skipMode: 'rubric', agentId: 'summit' }, { odata: fakeOdata(SHORT), store, rubrics });
     assert.equal(again.scored.length, 0, 'and it is not recorded twice');
@@ -302,21 +305,21 @@ describe('a scoring run', () => {
     const original = grown.sessions.bind(grown);
     grown.sessions = async (...args: Parameters<typeof original>) =>
       (await original(...args)).map((session) => ({ ...session, lastAt: '2026-09-19T09:00:00.000Z' }));
-    const before = api.requests.length;
+    const before = scoring().length;
     await executeRun(base, { odata: grown, store, rubrics });
-    assert.equal(api.requests.length - before, 1, 'a grown session is asked again');
+    assert.equal(scoring().length - before, 1, 'a grown session is asked again');
     store.close();
   });
 
   it('defers a session still in progress instead of scoring it half-finished', async () => {
     const store = new Store(':memory:');
-    const before = api.requests.length;
+    const before = scoring().length;
     const outcome = await executeRun(
       { projectId: 'p', projectName: 'P', from: 'a', to: 'b', limit: 1, skipScored: false,
         settledBefore: '2026-09-18T10:00:00.000Z' },
       { odata: fakeOdata(SHORT), store, rubrics: DEFAULT_RUBRICS },
     );
-    assert.equal(api.requests.length, before, 'nothing sent for an unsettled session');
+    assert.equal(scoring().length, before, 'nothing sent for an unsettled session');
     assert.equal(outcome.deferred.length, 1);
     assert.equal(outcome.scored.length, 0);
     store.close();

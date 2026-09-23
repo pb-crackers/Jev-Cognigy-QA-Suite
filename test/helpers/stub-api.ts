@@ -41,6 +41,12 @@ export async function startStubApi(initial: Overrides = {}): Promise<StubApi> {
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as StubRequest;
       requests.push(body);
 
+      // An override of { fail: true } for any question makes the whole request fail, as an outage would.
+      if (Object.keys(body.questions).some((name) => (overrides[name] as { fail?: boolean } | undefined)?.fail)) {
+        response.writeHead(500, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ error: 'stub outage' }));
+        return;
+      }
       const answers: Record<string, unknown> = {};
       for (const [name, question] of Object.entries(body.questions)) {
         if (name in overrides) {
