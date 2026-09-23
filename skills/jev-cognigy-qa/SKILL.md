@@ -333,6 +333,16 @@ Rubrics marked `requiresTrace` (off_instruction, figures_without_tool, invented_
 claimed_action_without_tool) are only asked on conversations where every LLM call was logged.
 Elsewhere they are not applicable, and that is not a failure.
 
+To look at an agent's sessions headlessly:
+`GET /api/agents/<id>/sessions?window=24h&show=all|rubric_failed|call_failed|not_scored` lists
+them with what failed, and `GET /api/agents/<id>/rubrics/<rubricId>?show=failed|passed|all`
+lists one rubric's sessions, failures first, with the answer in words and its `certainty`
+(`probability` of the answer given for yes/no — "no, probability 0.58", never the chance of
+yes — or `confidence` for scores and choices). `POST /api/sessions/<id>/locate` with
+`{ "agentId", "rubricId" }` asks Jev which agent message the answer rests on (one call, then
+stored; `message` is the agent message number, `null` when no single message decides it).
+Rubric pass rates in `agent health` are counts: `passed` of `answered` sessions.
+
 With logging on, every tool call is kept as a record and checked exactly, with no model:
 arguments valid JSON, the tool exists, arguments match the tool's own schema, the tool
 accepted the call (not `status: incomplete`, an `error`, or `ok: false`), a result came back,
