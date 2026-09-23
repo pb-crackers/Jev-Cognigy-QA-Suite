@@ -12,6 +12,7 @@ let api: StubApi;
 let locate: typeof import('../src/scoring/locate.ts').locate;
 let verdictText: typeof import('../src/scoring/locate.ts').verdictText;
 let locateSession: typeof import('../src/scoring/locate.ts').locateSession;
+let locateAll: typeof import('../src/scoring/locate.ts').locateAll;
 let createAgent: typeof import('../src/agents/service.ts').createAgent;
 let Ledger: typeof import('../src/metering.ts').Ledger;
 let Store: typeof import('../src/store/db.ts').Store;
@@ -31,7 +32,7 @@ before(async () => {
   api = await startStubApi();
   process.env.TYPESAFE_API_KEY = 'test-key-not-real';
   process.env.TYPESAFE_BASE_URL = api.baseURL;
-  ({ locate, verdictText, locateSession } = await import('../src/scoring/locate.ts'));
+  ({ locate, verdictText, locateSession, locateAll } = await import('../src/scoring/locate.ts'));
   ({ createAgent } = await import('../src/agents/service.ts'));
   ({ Ledger } = await import('../src/metering.ts'));
   ({ Store } = await import('../src/store/db.ts'));
@@ -61,6 +62,18 @@ describe('which message a verdict rests on', () => {
     assert.match(JSON.stringify(question), /Which customer message is the main reason/);
     assert.match(JSON.stringify(question.criteria), /Customer message 2: \\"Just tell me/);
     assert.deepEqual([found.about, found.message, found.turnIndex], ['customer', 2, 2], 'the second customer message is turn 2');
+  });
+
+  it('sends the instructions only with rubrics judged against them', async () => {
+    const offInstruction: Rubric = { ...rate, id: 'off_instruction', question: 'Did the agent break its instructions?', requiresTrace: true };
+    const before = api.requests.length;
+    await locateAll([{ rubric: rate, raw: '0.86' }, { rubric: offInstruction, raw: '0.9' }], turns, { instructions: 'Never quote a rate.' }, new Ledger(), 's1');
+    const sent = api.requests.slice(before);
+    assert.equal(sent.length, 2);
+    const plain = sent.find((request) => 'which_quoted_rate' in request.questions)!;
+    const judged = sent.find((request) => 'which_off_instruction' in request.questions)!;
+    assert.equal('instructions' in (plain.state as object), false);
+    assert.equal((judged.state as { instructions: string }).instructions, 'Never quote a rate.');
   });
 
   it('says so when no single message decides it', async () => {

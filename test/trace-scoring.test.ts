@@ -137,8 +137,10 @@ describe('trace-aware state', () => {
     const before = api.requests.length;
     await run(store, agent.id);
     const followUps = api.requests.slice(before).filter((request) => Object.keys(request.questions).some((id) => id.startsWith('which_')));
-    assert.equal(followUps.length, 1, 'one request for every answer');
-    assert.deepEqual(Object.keys(followUps[0].questions).sort(), ['which_helped', 'which_tool_first']);
+    // One request for the rubrics that read the conversation alone, one for those judged against the instructions.
+    assert.equal(followUps.length, 2);
+    assert.deepEqual(followUps.map((request) => Object.keys(request.questions)).flat().sort(), ['which_helped', 'which_tool_first']);
+    assert.equal('instructions' in (followUps.find((request) => 'which_helped' in request.questions)!.state as object), false);
     const stored = store.locatesForRubric(agent.id, 'helped').get('sess-1');
     assert.ok(stored && stored.key, 'kept, keyed to the answer it was asked about');
     store.close();
