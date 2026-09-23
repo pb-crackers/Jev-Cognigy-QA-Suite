@@ -10,6 +10,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Rubric } from '../rubrics/model.ts';
 import type { Agent } from '../agents/model.ts';
+import type { StoredTrace, TracePayload } from '../traces/model.ts';
 import { databaseFile } from '../paths.ts';
 
 export interface RunRow {
@@ -373,6 +374,54 @@ export class Store {
       });
     }
     return [...newest.values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }
+
+  // ---- traces ----
+
+  saveTrace(agentId: string, payload: TracePayload, receivedAt = new Date().toISOString()): number {
+    const result = this.#db
+      .prepare(
+        `INSERT INTO trace (agent_id, session_id, input_id, event_at, received_at, json)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        agentId, payload.meta.sessionId, payload.meta.inputId ?? null,
+        payload.meta.timestamp, receivedAt, JSON.stringify(payload),
+      );
+    return Number(result.lastInsertRowid);
+  }
+
+  tracesFor(agentId: string, sessionId: string): StoredTrace[] {
+    const rows = this.#db
+      .prepare('SELECT * FROM trace WHERE agent_id = ? AND session_id = ? ORDER BY event_at, id')
+      .all(agentId, sessionId) as Record<string, never>[];
+    return rows.map((row) => ({
+      id: row.id, agentId: row.agent_id, sessionId: row.session_id, inputId: row.input_id,
+      eventAt: row.event_at, receivedAt: row.received_at, payload: JSON.parse(row.json) as TracePayload,
+    }));
+  }
+
+  /** How many traces an agent has received, and when the newest arrived. */
+  traceSummary(agentId: string): { traces: number; sessions: number; lastReceivedAt: string | null } {
+    const row = this.#db
+      .prepare(
+        `SELECT COUNT(*) AS traces, COUNT(DISTINCT session_id) AS sessions, MAX(received_at) AS last
+         FROM trace WHERE agent_id = ?`,
+      )
+      .get(agentId) as { traces: number; sessions: number; last: string | null };
+    return { traces: row.traces, sessions: row.sessions, lastReceivedAt: row.last };
+  }
+
+  /** The newest trace an agent has received — where its current instructions are read from. */
+  latestTrace(agentId: string): StoredTrace | undefined {
+    const row = this.#db
+      .prepare('SELECT * FROM trace WHERE agent_id = ? ORDER BY event_at DESC, id DESC LIMIT 1')
+      .get(agentId) as Record<string, never> | undefined;
+    if (!row) return undefined;
+    return {
+      id: row.id, agentId: row.agent_id, sessionId: row.session_id, inputId: row.input_id,
+      eventAt: row.event_at, receivedAt: row.received_at, payload: JSON.parse(row.json) as TracePayload,
+    };
   }
 
   // ---- agents ----

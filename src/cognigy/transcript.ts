@@ -20,6 +20,8 @@ export interface Turn {
   role: Role;
   text: string;
   at: string;
+  /** The user input this turn belongs to — the key that joins it to a logged LLM call. */
+  inputId?: string;
   /** Flow node that produced the turn, when reported. */
   nodeType?: string;
   nodeLabel?: string;
@@ -163,6 +165,7 @@ export function assemble(
         role: roleOf(item.record),
         text,
         at: item.record.timestamp,
+        inputId: item.record.inputId || undefined,
         nodeType: item.nodeType,
         nodeLabel: item.nodeLabel,
         nodeId: item.nodeId,
@@ -191,6 +194,7 @@ export function assemble(
         role: roleOf(group[0].record),
         text,
         at: group[0].record.timestamp,
+        inputId: group[0].record.inputId || undefined,
         nodeType: described?.nodeType,
         nodeLabel: described?.nodeLabel,
         nodeId: described?.nodeId,
