@@ -84,6 +84,16 @@ export async function loggingStatus(agent: Agent, api: Api): Promise<NodeLogging
   return out;
 }
 
+/** Whether a node of ours already posts to exactly this URL with this token. */
+function isCurrent(config: Record<string, unknown>, url: string, token: string): boolean {
+  if (config.loggingWebhookUrl !== url) return false;
+  try {
+    return JSON.parse(String(config.loggingHeaders ?? '{}'))['X-Webhook-Token'] === token;
+  } catch {
+    return false;
+  }
+}
+
 export interface InstallReport {
   installed: NodeLogging[];
   alreadyOurs: NodeLogging[];
@@ -111,7 +121,9 @@ export async function installLogging(
 
   for (const node of await loggingStatus(agent, api)) {
     if (options.onlyNodeIds && !options.onlyNodeIds.includes(node.nodeId)) continue;
-    if (node.state === 'ours') {
+    // Ours by path, but a tunnel's address changes when it restarts: a node
+    // still posting to the old host, or with an old token, is written again.
+    if (node.state === 'ours' && isCurrent((await api.node(node.flowId, node.nodeId)).config, url, agent.trace.token)) {
       report.alreadyOurs.push(node);
       continue;
     }

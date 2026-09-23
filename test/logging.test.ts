@@ -196,6 +196,21 @@ describe('uninstalling', () => {
     store.close();
   });
 
+  it('moves its own nodes to a new tunnel address, and leaves current ones untouched', async () => {
+    const { store, agent } = setup();
+    const cognigy = fakeCognigy();
+    const first = await installLogging(agent, cognigy.api, store, { publicUrl: 'https://old-tunnel.example.com' });
+    const unchanged = await installLogging(first.agent, cognigy.api, store, { publicUrl: 'https://old-tunnel.example.com' });
+    assert.equal(unchanged.report.alreadyOurs.length, 1);
+    assert.equal(cognigy.writes.length, 1, 'no write when nothing changed');
+
+    const moved = await installLogging(unchanged.agent, cognigy.api, store, { publicUrl: 'https://new.example.com/agent-watch' });
+    assert.equal(moved.report.installed.length, 1);
+    assert.equal(cognigy.configs.job.loggingWebhookUrl, hookUrl('https://new.example.com/agent-watch', agent.id));
+    assert.equal(moved.agent.trace.installs[0].previous.loggingWebhookUrl, '', 'the original "before" survives the move');
+    store.close();
+  });
+
   it('does not overwrite a node someone repointed after install', async () => {
     const { store, agent } = setup();
     const cognigy = fakeCognigy();
