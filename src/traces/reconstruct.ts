@@ -1,16 +1,59 @@
 /**
- * A session's logged LLM calls, pieced back into what the grader needs.
+ * A session's logged LLM calls, pieced back into what the grader and the
+ * reviewer need.
  *
- * Three things come out: the agent's instructions exactly as they were sent,
- * the tools it had, and every tool call and tool result in order. Tool calls
- * are read from each response; results from the `tool` messages in later
- * requests' history, matched by call id and taken once — the history repeats
- * them on every subsequent call.
+ * Out come the agent's instructions exactly as they were sent, the tools it
+ * had (with their schemas), and every tool call it made as a record: what it
+ * called, with what, what came back, what it said around it, and when.
+ *
+ * Order comes from the message history, not from timestamps. Each call's
+ * history is the previous call's plus what happened since, so the order in
+ * which a tool call first appears — in a response, then in the next history —
+ * is the order it happened in. Timestamps are kept for timing only: a result
+ * is logged with the *next* call's time, the same time as any new call that
+ * response makes, and sorting on them put a later call before an earlier
+ * result.
  */
 import type { Turn } from '../cognigy/transcript.ts';
 import { LLM_NODE_TYPES } from '../agents/nodes.ts';
 import type { TraceCoverage } from '../store/db.ts';
-import { type StoredTrace, toolCallArguments, toolCallName } from './model.ts';
+import type { StoredTrace } from './model.ts';
+import { normalise, type DriftWarning, type LlmCall, type NormalisedToolCall, type ToolDefinition } from './normalise.ts';
+
+export type CheckOutcome = 'pass' | 'fail' | 'unchecked';
+
+export interface CheckResult {
+  id: string;
+  outcome: CheckOutcome;
+  /** What was found, in words — shown beside the verdict. */
+  detail?: string;
+}
+
+export interface ToolCallRecord {
+  /** Position among the session's tool calls, from 1. */
+  seq: number;
+  callId: string;
+  /** The user input whose reply this call was made for. */
+  inputId?: string;
+  name: string;
+  args: Record<string, unknown> | null;
+  argsRaw: string;
+  /** The tool as the agent had it when it made the call. */
+  definition?: ToolDefinition;
+  /** What the tool returned, as text; undefined when no result was ever logged. */
+  result?: string;
+  /** The result parsed, when it is JSON. */
+  resultJson?: unknown;
+  /** Text the agent said in the same response as the call — before calling. */
+  preamble?: string;
+  /** The reply the agent gave for this input once its tools were done. */
+  replyAfter?: string;
+  calledAt?: string;
+  resultAt?: string;
+  /** The LLM call that decided to make this tool call. */
+  llm?: { model?: string; modelVersion?: string; finishReason?: string; tokens: { input: number; output: number }; latencyMs?: number };
+  checks: CheckResult[];
+}
 
 export interface ToolEvent {
   kind: 'call' | 'result';
@@ -25,75 +68,106 @@ export interface ToolEvent {
 export interface SessionTrace {
   /** The system prompt from the newest call: the instructions in force at the end. */
   instructions?: string;
-  tools: { name: string; description: string }[];
+  tools: ToolDefinition[];
+  toolCalls: ToolCallRecord[];
+  /** Tool calls and results as a flat sequence, in the order they happened. */
   events: ToolEvent[];
   /** Inputs that have at least one logged LLM call behind them. */
   inputIds: Set<string>;
   calls: number;
   model?: string;
   tokens: { input: number; output: number };
+  /** Anything in a payload shaped other than expected, with the call it came from. */
+  drift: (DriftWarning & { at: string; traceId?: string })[];
+}
+
+function parseJson(text: string): unknown {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return undefined;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return undefined;
+  }
 }
 
 export function reconstruct(traces: StoredTrace[]): SessionTrace {
-  const ordered = [...traces].sort((a, b) => a.eventAt.localeCompare(b.eventAt));
-  const out: SessionTrace = { tools: [], events: [], inputIds: new Set(), calls: ordered.length, tokens: { input: 0, output: 0 } };
-  const namesByCall = new Map<string, string>();
-  const seenResults = new Set<string>();
-  const seenCalls = new Set<string>();
-
+  const calls: LlmCall[] = [];
+  const out: SessionTrace = {
+    tools: [], toolCalls: [], events: [], inputIds: new Set(), calls: traces.length, tokens: { input: 0, output: 0 }, drift: [],
+  };
+  const ordered = [...traces].sort((a, b) => a.eventAt.localeCompare(b.eventAt) || a.id - b.id);
   for (const trace of ordered) {
-    const { payload } = trace;
-    if (trace.inputId) out.inputIds.add(trace.inputId);
-    const messages = payload.request?.body?.messages ?? [];
+    const { call, drift } = normalise(trace.payload);
+    calls.push(call);
+    out.drift.push(...drift.map((warning) => ({ ...warning, at: call.at, traceId: call.traceId })));
+  }
 
-    const system = messages.find((message) => message.role === 'system')?.content;
-    if (typeof system === 'string' && system.trim()) out.instructions = system;
-
-    const tools = payload.request?.body?.tools ?? [];
-    if (tools.length) {
-      out.tools = tools
-        .map((tool) => ({ name: tool.function?.name ?? '', description: tool.function?.description ?? '' }))
-        .filter((tool) => tool.name);
+  const records = new Map<string, ToolCallRecord>();
+  const record = (tc: NormalisedToolCall, fallbackInput: string | undefined): ToolCallRecord => {
+    // A call without an id — not seen from Cognigy, but possible — is known by what it did.
+    const key = tc.id || `${tc.name}\u0000${tc.argsRaw}\u0000${records.size}`;
+    let found = records.get(key);
+    if (!found) {
+      found = { seq: records.size + 1, callId: tc.id, inputId: fallbackInput, name: tc.name, args: tc.args, argsRaw: tc.argsRaw, checks: [] };
+      records.set(key, found);
     }
-    out.model = payload.request?.baseParams?.model ?? payload.request?.body?.model ?? out.model;
-    out.tokens.input += payload.response?.tokenUsage?.inputTokens ?? 0;
-    out.tokens.output += payload.response?.tokenUsage?.outputTokens ?? 0;
+    return found;
+  };
 
-    // Results arrive in the history of the call after the one that asked for them.
-    for (const message of messages) {
-      if (message.role !== 'tool' || !message.tool_call_id || seenResults.has(message.tool_call_id)) continue;
-      seenResults.add(message.tool_call_id);
-      out.events.push({
-        kind: 'result',
-        name: namesByCall.get(message.tool_call_id) ?? 'tool',
-        callId: message.tool_call_id,
-        detail: String(message.content ?? ''),
-        inputId: trace.inputId,
-        at: trace.eventAt,
-      });
+  for (const call of calls) {
+    if (call.inputId) out.inputIds.add(call.inputId);
+    if (call.systemPrompt) out.instructions = call.systemPrompt;
+    if (call.tools.length) out.tools = call.tools;
+    out.model = call.model ?? out.model;
+    out.tokens.input += call.tokens.input;
+    out.tokens.output += call.tokens.output;
+
+    for (const message of call.history) {
+      for (const tc of message.toolCalls) {
+        // The history keeps the arguments exactly as the model wrote them.
+        record(tc, call.inputId).argsRaw = tc.argsRaw;
+      }
+      if (message.role === 'tool' && message.toolCallId) {
+        const found = records.get(message.toolCallId);
+        if (found && found.result === undefined) {
+          found.result = message.content;
+          found.resultAt = call.at;
+          const json = parseJson(message.content);
+          if (json !== undefined) found.resultJson = json;
+        }
+      }
     }
 
-    for (const call of payload.response?.toolCalls ?? []) {
-      const key = call.id ?? `${trace.id}:${toolCallName(call)}`;
-      if (seenCalls.has(key)) continue;
-      seenCalls.add(key);
-      if (call.id) namesByCall.set(call.id, toolCallName(call));
-      out.events.push({
-        kind: 'call',
-        name: toolCallName(call),
-        callId: call.id,
-        detail: toolCallArguments(call),
-        inputId: trace.inputId,
-        at: trace.eventAt,
-      });
+    for (const tc of call.toolCalls) {
+      const found = record(tc, call.inputId);
+      found.inputId = call.inputId ?? found.inputId;
+      found.calledAt = call.at;
+      found.args = tc.args;
+      found.definition = call.tools.find((tool) => tool.name === tc.name);
+      if (call.reply.trim()) found.preamble = call.reply.trim();
+      found.llm = {
+        model: call.model, modelVersion: call.modelVersion, finishReason: call.finishReason,
+        tokens: call.tokens, latencyMs: call.latencyMs,
+      };
     }
   }
 
-  // A result is recorded against the call that produced it once both are known.
-  for (const event of out.events) {
-    if (event.kind === 'result' && event.callId) event.name = namesByCall.get(event.callId) ?? event.name;
+  // The reply an input ended with is its last call that made no tool calls.
+  const replies = new Map<string, string>();
+  for (const call of calls) {
+    if (call.inputId && call.toolCalls.length === 0 && call.reply.trim()) replies.set(call.inputId, call.reply.trim());
   }
-  out.events.sort((a, b) => a.at.localeCompare(b.at) || (a.kind === 'call' ? -1 : 1));
+  out.toolCalls = [...records.values()];
+  for (const found of out.toolCalls) {
+    if (found.inputId && replies.has(found.inputId)) found.replyAfter = replies.get(found.inputId);
+    if (!found.definition) found.definition = out.tools.find((tool) => tool.name === found.name);
+    const inputId = found.inputId ?? null;
+    out.events.push({ kind: 'call', name: found.name, callId: found.callId, detail: found.argsRaw, inputId, at: found.calledAt ?? '' });
+    if (found.result !== undefined) {
+      out.events.push({ kind: 'result', name: found.name, callId: found.callId, detail: found.result, inputId, at: found.resultAt ?? '' });
+    }
+  }
   return out;
 }
 

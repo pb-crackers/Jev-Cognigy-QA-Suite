@@ -11,6 +11,7 @@ import { startStubApi, type StubApi } from './helpers/stub-api.ts';
 import type { ConversationRecord, SessionSummary } from '../src/cognigy/odata.ts';
 import type { Rubric } from '../src/rubrics/model.ts';
 import type { Turn } from '../src/cognigy/transcript.ts';
+import type { ToolCallRecord } from '../src/traces/reconstruct.ts';
 
 let api: StubApi;
 let executeRun: typeof import('../src/scoring/run.ts').executeRun;
@@ -148,16 +149,24 @@ describe('trace-aware state', () => {
 describe('placing tool lines', () => {
   const turn = (role: Turn['role'], text: string, inputId?: string): Turn => ({ role, text, at: 't', inputId });
 
+  const call = (over: Partial<ToolCallRecord>): ToolCallRecord => ({ seq: 1, callId: 'c1', name: 'lookup', args: {}, argsRaw: '{}', checks: [], ...over });
+
   it('puts a call with no reply after the last line of its input', () => {
-    const trace = { ...reconstruct([]), events: [{ kind: 'call' as const, name: 'lookup', detail: '{}', inputId: 'in-1', at: 't' }] };
+    const trace = { ...reconstruct([]), toolCalls: [call({ inputId: 'in-1' })] };
     const out = withToolLines([turn('user', 'q', 'in-1'), turn('user', 'next', 'in-2')], trace);
     assert.deepEqual(out.map((line) => line.text), ['q', '[tool call lookup {}]', 'next']);
   });
 
-  it('trims a long tool result', () => {
-    const trace = { ...reconstruct([]), events: [{ kind: 'result' as const, name: 'kb', detail: 'x'.repeat(2000), inputId: 'in-1', at: 't' }] };
-    const [line] = withToolLines([], trace);
-    assert.ok(line.text.length < 600);
-    assert.match(line.text, /trimmed 1500 characters/);
+  it('puts calls after text the agent said before calling, and before its reply', () => {
+    const trace = { ...reconstruct([]), toolCalls: [call({ inputId: 'in-1', preamble: 'Let me   check that **for you**.', result: '{"ok":true}' })] };
+    const out = withToolLines([turn('user', 'q', 'in-1'), turn('agent', 'Let me check that for you.', 'in-1'), turn('agent', 'All done.', 'in-1')], trace);
+    assert.deepEqual(out.map((line) => line.text), ['q', 'Let me check that for you.', '[tool call lookup {}]', '[tool result lookup: {"ok":true}]', 'All done.']);
+  });
+
+  it('trims a long tool result with a visible marker', () => {
+    const trace = { ...reconstruct([]), toolCalls: [call({ result: 'x'.repeat(5000) })] };
+    const [, line] = withToolLines([], trace);
+    assert.ok(line.text.length < 2100);
+    assert.match(line.text, /trimmed 3000 characters/);
   });
 });

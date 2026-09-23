@@ -1,0 +1,284 @@
+<!doctype html>
+<!--
+  Mockup: data-and-scoring-foundation — tool calls in the session transcript,
+  a session that couldn't be scored, and data health on the agent page.
+
+  Target: the session drawer (#session-drawer, .drawer.wide > .session-split in
+  src/public/index.html / app.js openSession) and the agent page (watch.js
+  renderAgent). Tokens are copied verbatim from src/public/app.css :root.
+
+  The one new idea is the turn rail: the tool calls an agent made for a reply
+  sit on a thin rail between the customer's message and that reply, so which
+  calls belong to which answer is visible without reading timestamps. A call
+  that failed a check marks the rail; passing calls stay quiet.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tool calls in the transcript</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --plane:#0d0d0d; --surface-1:#1a1a19; --surface-2:#232321;
+    --ink-1:#f2f1ec; --ink-2:#a9a79d; --ink-muted:#6f6d66;
+    --hairline:#2c2c2a; --border:rgba(255,255,255,.09);
+    --t-noul:#3987e5; --t-score:#d95926; --t-choice:#199e70;
+    --good:#0ca30c; --warning:#fab219; --serious:#ec835a; --critical:#d03b3b;
+    --success-text:#0ca30c; --warning-text:#fab219; --critical-text:#d03b3b;
+    --row-hover:rgba(255,255,255,.035);
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --plane:#f4f4f1; --surface-1:#fcfcfb; --surface-2:#eeeeea;
+    --ink-1:#0b0b0b; --ink-2:#52514e; --ink-muted:#898781;
+    --hairline:#e1e0d9; --border:rgba(11,11,11,.12);
+    --t-noul:#2a78d6; --t-score:#eb6834; --t-choice:#1baf7a;
+    --success-text:#006300; --warning-text:#8a6200; --critical-text:#b52d2d;
+    --row-hover:rgba(11,11,11,.035);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 28px 16px 80px; background: var(--plane); color: var(--ink-1);
+    font: 13.5px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+  .page { max-width: 1180px; margin: 0 auto; }
+  .state-title { font: 500 14px/1.3 var(--sans); margin: 40px 0 6px; }
+  .state-note { color: var(--ink-2); font-size: 13px; margin: 0 0 14px; max-width: 72ch; }
+  .toggle { float: right; font: 12px var(--mono); background: none; color: var(--ink-2);
+    border: 1px solid var(--hairline); border-radius: 4px; padding: 4px 9px; cursor: pointer; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+
+  /* drawer (as .drawer.wide) */
+  .drawer-head { display: flex; align-items: baseline; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--hairline); }
+  .drawer-head h2 { font: 13px/1 var(--sans); color: var(--ink-muted); margin: 0; }
+  .drawer-head .meta { font: 12px var(--mono); color: var(--ink-2); }
+  .session-split { display: grid; grid-template-columns: minmax(0, 1fr) 400px; align-items: start; }
+  .tx { border-right: 1px solid var(--hairline); padding: 16px 18px; }
+  .rub { padding: 16px 18px; }
+
+  /* turns (as .turn / .who) */
+  .turn { display: flex; gap: 8px; padding: 5px 0; }
+  .who { flex: none; width: 44px; font: 11px/1.65 var(--sans); color: var(--ink-muted); padding-top: 2px; }
+  .turn.agent .who { color: var(--t-noul); }
+  .turn .text { overflow-wrap: anywhere; max-width: 68ch; }
+  .turn.preamble .text { color: var(--ink-2); }
+
+  /* the turn rail */
+  .calls { margin: 2px 0 4px 52px; border-left: 2px solid var(--hairline); padding: 2px 0 2px 0; }
+  .call { position: relative; }
+  .call > summary { list-style: none; display: grid; grid-template-columns: 14px auto minmax(0, 1fr) auto; gap: 8px;
+    align-items: baseline; padding: 4px 8px 4px 12px; cursor: pointer; border-radius: 0 4px 4px 0; }
+  .call > summary::-webkit-details-marker { display: none; }
+  .call > summary:hover { background: var(--row-hover); }
+  .call > summary:focus-visible { outline: 2px solid var(--t-noul); outline-offset: -2px; }
+  /* the node on the rail */
+  .call::before { content: ""; position: absolute; left: -5px; top: 10px; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--plane); border: 2px solid var(--ink-muted); }
+  .call.bad::before { background: var(--critical); border-color: var(--critical); }
+  .call .chev { font: 11px var(--mono); color: var(--ink-muted); transition: transform .12s ease; }
+  .call[open] .chev { transform: rotate(90deg); }
+  .call .name { font: 12.5px/1.4 var(--mono); color: var(--ink-1); }
+  .call .args { font: 12px/1.4 var(--mono); color: var(--ink-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .call .end { display: flex; gap: 8px; align-items: baseline; white-space: nowrap; }
+  .call .dur { font: 11.5px var(--mono); color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+  .status { font: 11.5px/1 var(--sans); color: var(--ink-2); }
+  .status.bad { color: var(--critical-text); font-weight: 600; }
+  .times { font: 11.5px var(--mono); color: var(--ink-muted); }
+
+  /* expanded call */
+  .detail { margin: 2px 8px 10px 34px; padding: 12px 14px; background: var(--surface-2); border-radius: 4px; display: grid; gap: 12px; }
+  .detail h4 { margin: 0 0 5px; font: 500 12px/1.3 var(--sans); color: var(--ink-2); }
+  .kv { display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; gap: 3px 14px; font: 12px/1.5 var(--mono); }
+  .kv .k { color: var(--ink-2); }
+  .kv .v { color: var(--ink-1); overflow-wrap: anywhere; }
+  .kv .s { color: var(--ink-muted); font-family: var(--sans); font-size: 11.5px; }
+  .kv .s.bad { color: var(--critical-text); }
+  .callout { border-left: 2px solid var(--critical); padding: 6px 10px; font-size: 12.5px; color: var(--ink-1); background: color-mix(in srgb, var(--critical) 8%, transparent); }
+  pre.result { margin: 0; font: 12px/1.55 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 9.5em; overflow: auto; }
+  .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; }
+  .checks li { display: grid; grid-template-columns: 76px 1fr; gap: 8px; }
+  .checks .v { font: 11.5px/1.6 var(--sans); color: var(--ink-muted); }
+  .checks .v.bad { color: var(--critical-text); font-weight: 600; }
+  .checks .v.unk { color: var(--warning-text); }
+  .foot { font: 11.5px var(--mono); color: var(--ink-muted); display: flex; flex-wrap: wrap; gap: 4px 16px; }
+  .rawlink { font: 12px var(--sans); color: var(--t-noul); background: none; border: 0; padding: 0; cursor: pointer; }
+
+  /* a group of calls */
+  .group > summary .name { color: var(--ink-2); font-family: var(--sans); font-size: 12.5px; }
+  .group > .inner { margin-left: 12px; border-left: 2px dotted var(--hairline); }
+
+  /* rubric panel stand-in (as .r / .rh / .rn / .rv) */
+  .r { padding: 10px 0; border-top: 1px solid var(--hairline); }
+  .r:first-child { border-top: 0; }
+  .rh { display: flex; justify-content: space-between; gap: 16px; }
+  .rn { font: 12.5px/1.4 var(--mono); }
+  .rv { font: 600 13px/1 var(--mono); }
+  .rq { font: 12px/1.5 var(--sans); color: var(--ink-2); margin: 6px 0 0; }
+
+  /* couldn't score */
+  .notscored { border: 1px solid var(--critical); border-radius: 4px; padding: 14px 16px; display: grid; gap: 8px; }
+  .notscored strong { font: 600 13.5px/1.3 var(--sans); }
+  .notscored p { margin: 0; color: var(--ink-2); font-size: 13px; }
+  .notscored code { font: 12px var(--mono); color: var(--ink-1); }
+  .btn { padding: 7px 12px; border-radius: 4px; border: 1px solid var(--hairline); background: transparent; color: var(--ink-1);
+    font: 500 12.5px/1 var(--sans); cursor: pointer; justify-self: start; }
+
+  /* data health (agent page) */
+  .agent-section { padding: 18px 16px; }
+  .agent-section-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; }
+  .agent-section-head h3 { margin: 0; font: 500 14px/1.3 var(--sans); }
+  .hint { font: 12.5px/1.5 var(--sans); color: var(--ink-2); }
+  .dh { list-style: none; margin: 0; padding: 0; }
+  .dh li { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 16px; padding: 8px 0; border-top: 1px solid var(--hairline); }
+  .dh li:first-child { border-top: 0; }
+  .dh .k { color: var(--ink-2); font-size: 13px; }
+  .dh .v { font-size: 13px; }
+  .dh .v .num { font: 600 13px var(--mono); font-variant-numeric: tabular-nums; }
+  .dh .v.bad .num { color: var(--critical-text); }
+  .dh .v code { font: 12px var(--mono); color: var(--ink-2); }
+  .dh .v a { color: var(--t-noul); text-decoration: none; }
+  .fleet-row { display: grid; grid-template-columns: minmax(0, 1.2fr) 150px minmax(0, 1.6fr); gap: 18px; padding: 14px 16px; align-items: center; }
+  .aname { font: 14px/1.3 var(--mono); display: block; }
+  .hnum { font: 600 28px/1 var(--mono); color: var(--warning-text); }
+  .flagc { font: 11px/1 var(--mono); color: var(--critical-text); }
+
+  @media (prefers-reduced-motion: reduce) { .call .chev { transition: none; } }
+  @media (max-width: 860px) {
+    .session-split { grid-template-columns: 1fr; }
+    .tx { border-right: 0; border-bottom: 1px solid var(--hairline); }
+    .calls { margin-left: 8px; }
+    .call > summary { grid-template-columns: 14px auto minmax(0, 1fr); }
+    .call .end { grid-column: 2 / -1; }
+    .detail { margin-left: 12px; }
+    .kv { grid-template-columns: max-content minmax(0, 1fr); }
+    .kv .s { grid-column: 2; }
+    .dh li { grid-template-columns: 1fr; gap: 2px; }
+    .fleet-row { grid-template-columns: 1fr; gap: 8px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <button class="toggle" type="button" onclick="const r=document.documentElement; r.dataset.theme = r.dataset.theme === 'light' ? 'dark' : 'light'">Light / dark</button>
+
+  <h1 class="state-title">1. A session with tool calls</h1>
+  <p class="state-note">Each call sits on the rail between the customer's message and the reply it produced. Collapsed, a passing call is one quiet line. A failed check turns the node red and names the problem in words. Text the agent said before calling stays a normal line. Three or more calls in one turn fold into a group, which opens by itself when one of them failed. Identical repeats fold into ×2.</p>
+
+  <div class="card">
+    <div class="drawer-head"><h2>Session</h2><span class="meta">demo-address-change, REST API, 9 turns, 6 tool calls</span></div>
+    <div class="session-split">
+      <div class="tx">
+        <div class="turn user"><span class="who">User</span><span class="text">I moved and need to update my mailing address. Loan 2286, ZIP 98103, date of birth 1956-01-30.</span></div>
+        <div class="calls">
+          <details class="call">
+            <summary><span class="chev">›</span><span class="status">OK</span><span class="name">verify_borrower <span class="args">loan_last4 2286, zip 98103, dob 1956-01-30</span></span><span class="end"><span class="dur">≈1 s</span></span></summary>
+          </details>
+        </div>
+        <div class="turn agent"><span class="who">Agent</span><span class="text">Thank you, Helen, you're verified. What's the new mailing address?</span></div>
+
+        <div class="turn user"><span class="who">User</span><span class="text">The new address is 1420 Elm Street, Apt 3B, Seattle WA 98115. And my new phone is 555-0142.</span></div>
+        <div class="turn agent preamble"><span class="who">Agent</span><span class="text">Let me send a confirmation code to the phone on file first.</span></div>
+        <div class="calls">
+          <details class="call">
+            <summary><span class="chev">›</span><span class="status">OK</span><span class="name">send_confirmation_code <span class="args">loan_last4 2286</span></span><span class="end"><span class="dur">≈1 s</span></span></summary>
+          </details>
+          <details class="call bad" open>
+            <summary><span class="chev">›</span><span class="status bad">Rejected</span><span class="name">update_contact_details <span class="args">field phone, value 555-0142</span></span><span class="end"><span class="dur">≈2 s</span></span></summary>
+            <div class="detail">
+              <div class="callout">The tool refused the call: <b>status incomplete</b>, "Phone number must be 10 digits."</div>
+              <div>
+                <h4>Arguments, checked against the tool's schema</h4>
+                <div class="kv">
+                  <span class="k">loan_last4</span><span class="v">"2286"</span><span class="s">string, required</span>
+                  <span class="k">field</span><span class="v">"phone"</span><span class="s">one of mailing_address, phone, email, paperless</span>
+                  <span class="k">value</span><span class="v">"555-0142"</span><span class="s">string, required</span>
+                  <span class="k">code</span><span class="v">"482913"</span><span class="s">string, required</span>
+                </div>
+              </div>
+              <div>
+                <h4>Result</h4>
+                <pre class="result">{"updated":false,"status":"incomplete","reason":"Phone number must be 10 digits."}</pre>
+              </div>
+              <div>
+                <h4>Checks</h4>
+                <ul class="checks">
+                  <li><span class="v bad">Failed</span><span>The tool rejected the call</span></li>
+                  <li><span class="v">Passed</span><span>Arguments match the schema</span></li>
+                  <li><span class="v">Passed</span><span>Not a repeat of an earlier call</span></li>
+                </ul>
+              </div>
+              <div class="foot"><span>2,184 tokens in, 61 out</span><span>stopped for a tool call</span><span>gpt-5.6-luna</span><button class="rawlink" type="button">What the model saw</button></div>
+            </div>
+          </details>
+        </div>
+        <div class="turn agent"><span class="who">Agent</span><span class="text">I couldn't update the phone number, it needs all 10 digits including the area code. Could you give me the full number?</span></div>
+
+        <div class="turn user"><span class="who">User</span><span class="text">It's 206-555-0142. And can you tell me my balance while you're at it?</span></div>
+        <div class="calls">
+          <details class="call group">
+            <summary><span class="chev">›</span><span class="status">OK</span><span class="name">4 tool calls, 1 repeated</span><span class="end"><span class="dur">≈6 s</span></span></summary>
+            <div class="inner">
+              <details class="call"><summary><span class="chev">›</span><span class="status">OK</span><span class="name">verify_borrower <span class="args">loan_last4 2286, zip 98103</span></span><span class="end"><span class="times">×2</span><span class="dur">≈2 s</span></span></summary></details>
+              <details class="call"><summary><span class="chev">›</span><span class="status">OK</span><span class="name">update_contact_details <span class="args">field phone, value 206-555-0142</span></span><span class="end"><span class="dur">≈2 s</span></span></summary></details>
+              <details class="call"><summary><span class="chev">›</span><span class="status">OK</span><span class="name">get_loan_summary <span class="args">loan_last4 2286</span></span><span class="end"><span class="dur">≈2 s</span></span></summary></details>
+            </div>
+          </details>
+        </div>
+        <div class="turn agent"><span class="who">Agent</span><span class="text">Done, your phone is now 206-555-0142. Your principal balance is $96,540.00 and your next payment of $1,402.11 is due October 1.</span></div>
+      </div>
+
+      <div class="rub">
+        <div class="r"><div class="rh"><span class="rn">Customer was helped</span><span class="rv">0.91</span></div><p class="rq">Did the customer get what they came for?</p></div>
+        <div class="r"><div class="rh"><span class="rn">Claimed an action without a tool</span><span class="rv">No</span></div><p class="rq">Did the agent say it did something no tool call backs up?</p></div>
+        <div class="r"><div class="rh"><span class="rn">Took card or bank details in chat</span><span class="rv">No</span></div><p class="rq">Did the agent ask for, accept or repeat card details?</p></div>
+      </div>
+    </div>
+  </div>
+
+  <h1 class="state-title">2. A session that couldn't be scored</h1>
+  <p class="state-note">Today the drawer refuses to open. Instead the transcript still shows, and the rubric side says what went wrong, what happens next and what to do. A failed session isn't counted in health or alerts.</p>
+  <div class="card">
+    <div class="drawer-head"><h2>Session</h2><span class="meta">demo-hardship, REST API, 6 turns, 3 tool calls</span></div>
+    <div class="session-split">
+      <div class="tx">
+        <div class="turn user"><span class="who">User</span><span class="text">Hi. Loan 4417, ZIP 78704, date of birth 1985-03-14. I lost my job last week and I don't think I can make October's payment.</span></div>
+        <div class="calls"><details class="call"><summary><span class="chev">›</span><span class="status">OK</span><span class="name">verify_borrower <span class="args">loan_last4 4417, zip 78704, dob 1985-03-14</span></span><span class="end"><span class="dur">≈1 s</span></span></summary></details></div>
+        <div class="turn agent"><span class="who">Agent</span><span class="text">I'm so sorry to hear about your job, Dana. Let me get you to our loss-mitigation team.</span></div>
+      </div>
+      <div class="rub">
+        <div class="notscored">
+          <strong>Not scored yet</strong>
+          <p>Jev didn't answer: the request timed out after 15 seconds.</p>
+          <p>Tried 2 of 3 times. The next collection tries again, in about a minute.</p>
+          <button class="btn" type="button">Score it now</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h1 class="state-title">3. Data health on the agent page, and the fleet flag</h1>
+  <p class="state-note">One short section: can the scores be trusted, and if not, why. Each line links to the sessions behind it. When everything is fine it reads as one sentence and stays folded. The fleet row gets one red line only when there's a problem.</p>
+  <div class="card">
+    <section class="agent-section">
+      <div class="agent-section-head"><h3>Data</h3><span class="hint">what the scores rest on, last 24 hours</span></div>
+      <ul class="dh">
+        <li><span class="k">LLM calls logged</span><span class="v"><span class="num">42</span> of 44 replies have a logged call. <a href="#">2 don't</a>, so tool rubrics weren't asked for them.</span></li>
+        <li><span class="k">Couldn't score</span><span class="v bad"><span class="num">1</span> session: Jev timed out. <a href="#">Retrying</a>.</span></li>
+        <li><span class="k">Unexpected payloads</span><span class="v bad"><span class="num">1</span> field arrived in a new shape: <code>response.toolCalls[].function.arguments</code> was an object. Handled; first seen today at 10:34.</span></li>
+        <li><span class="k">Missing turns</span><span class="v"><span class="num">0</span>. Every logged reply is in the transcript.</span></li>
+      </ul>
+    </section>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <div class="fleet-row">
+      <div><span class="aname">Summit Ridge Loan Servicing</span><span class="hint">phillip-d-sandbox, Summit Ridge Loan Servicing REST Endpoint</span></div>
+      <div><span class="hnum">85%</span></div>
+      <div style="display:grid;gap:3px"><span class="hint">10 sessions, too few to report as a health figure.</span><span class="hint">Collected 1 min ago, 40 logged LLM calls</span><span class="flagc">1 data problem: a session couldn't be scored</span></div>
+    </div>
+  </div>
+
+  <p class="state-note" style="margin-top:28px">Adaptive: under 860px the transcript and rubrics stack, the rail moves in to 8px, each call's duration drops below its name, and the argument table puts schema notes under each value. Later, in phase 2: a density switch (hidden / compact / detailed), a "next issue" key, and a Steps list alongside the transcript.</p>
+</div>
+</body>
+</html>

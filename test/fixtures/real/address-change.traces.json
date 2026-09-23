@@ -1,0 +1,2841 @@
+[
+ {
+  "meta": {
+   "timestamp": "2026-09-23T14:28:17.181Z",
+   "status": "success",
+   "traceId": "endpoint-httpIncomingMessage-ecd6259a-eb5c-46b0-90ca-064b74da3d81",
+   "organisationId": "org-fixture",
+   "projectId": "project-fixture",
+   "sessionId": "demo-address-change-mue76yw1-3",
+   "userId": "agent-watch-demo",
+   "URLToken": "url-token-fixture",
+   "inputId": "0ee0c7f0-b1a2-4fae-ab04-54264da8cd8b",
+   "streamed": true,
+   "requestType": "chatCompletion"
+  },
+  "request": {
+   "body": {
+    "messages": [
+     {
+      "role": "system",
+      "content": "You are an AI Agent. Your name or brand is exactly 'Summit Ridge Loan Servicing'.\n\n[Instructions shortened for the test fixture.] Verify the customer before sharing account details. Any figure comes from a tool, never from memory."
+     },
+     {
+      "role": "user",
+      "content": "I moved and need to update my mailing address. Loan 2286, ZIP 98103, date of birth 1956-01-30."
+     }
+    ],
+    "model": "gpt-5.6-luna",
+    "temperature": 1,
+    "top_p": 1,
+    "frequency_penalty": 0,
+    "presence_penalty": 0,
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    },
+    "tools": [
+     {
+      "type": "function",
+      "function": {
+       "name": "verify_borrower",
+       "description": "Verify the borrower with the last 4 digits of the loan number, the property ZIP code and date of birth (YYYY-MM-DD). Returns whether they are verified and their first name. Call before sharing any account detail.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "zip": {
+          "type": "string",
+          "description": "Property ZIP code"
+         },
+         "dob": {
+          "type": "string",
+          "description": "Date of birth, YYYY-MM-DD"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "zip",
+         "dob"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_loan_summary",
+       "description": "Get a loan's current balance, interest rate, next due date and amount, escrow balance and whether autopay is on.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_payment_history",
+       "description": "Get recent payments on a loan with dates, amounts and whether each was late.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "months": {
+          "type": "number",
+          "description": "How many months back, 1-12"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "months"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_escrow_analysis",
+       "description": "Get the latest escrow analysis for a loan: old and new monthly payment, any shortage or surplus, and the reason for the change.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "send_confirmation_code",
+       "description": "Send a one-time confirmation code by text to the phone number on file for a loan. Required before update_contact_details.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "update_contact_details",
+       "description": "Change a contact detail on a loan once the borrower gives the confirmation code sent to their phone.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "field": {
+          "type": "string",
+          "enum": [
+           "mailing_address",
+           "phone",
+           "email",
+           "paperless"
+          ],
+          "description": "Which detail"
+         },
+         "value": {
+          "type": "string",
+          "description": "The new value"
+         },
+         "code": {
+          "type": "string",
+          "description": "The 6-digit confirmation code"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "field",
+         "value",
+         "code"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "request_payoff_quote",
+       "description": "Request a payoff quote good through a given date. Returns the payoff amount and the per-diem interest after that date.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "good_through": {
+          "type": "string",
+          "description": "Good-through date, YYYY-MM-DD"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "good_through"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "request_fee_review",
+       "description": "Open a review of a fee (for example a late fee). The servicing team decides within 5 business days; this does not waive the fee.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "fee": {
+          "type": "string",
+          "description": "Which fee"
+         },
+         "reason": {
+          "type": "string",
+          "description": "Why the borrower is asking"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "fee",
+         "reason"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "escalate_to_specialist",
+       "description": "Hand the borrower to a specialist team: loss_mitigation for hardship, disputes for payment or credit-reporting disputes, general for anything else.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "team": {
+          "type": "string",
+          "enum": [
+           "loss_mitigation",
+           "disputes",
+           "general"
+          ],
+          "description": "Which team"
+         },
+         "reason": {
+          "type": "string",
+          "description": "What the borrower needs"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "team",
+         "reason"
+        ],
+        "additionalProperties": false
+       }
+      }
+     }
+    ],
+    "tool_choice": "auto",
+    "response_format": {
+     "type": "text"
+    },
+    "max_completion_tokens": 2000,
+    "store": false,
+    "parallel_tool_calls": false
+   },
+   "options": {
+    "timeout": 8000,
+    "stream": true
+   },
+   "baseParams": {
+    "auth": {
+     "apiKeyMasked": "**********xxxx"
+    },
+    "providerType": "azureOpenAI",
+    "model": "gpt-5.6-luna",
+    "modelType": "custom-model"
+   }
+  },
+  "response": {
+   "result": "",
+   "provider": "azureOpenAI",
+   "streamed": true,
+   "finishReason": "tool_calls",
+   "lastChunk": {
+    "choices": [
+     {
+      "delta": {},
+      "finish_reason": "tool_calls",
+      "index": 0,
+      "logprobs": null
+     }
+    ],
+    "created": 1790173695,
+    "id": "chatcmpl-ERIFDfABDMGNKP2vy4gnJBHxzBu9E",
+    "model": "gpt-5.6-luna-2026-07-09",
+    "obfuscation": "2yiFZBLYQ",
+    "object": "chat.completion.chunk",
+    "service_tier": "default",
+    "system_fingerprint": null,
+    "usage": null
+   },
+   "toolCalls": [
+    {
+     "function": {
+      "arguments": {
+       "loan_last4": "2286",
+       "zip": "98103",
+       "dob": "1956-01-30"
+      },
+      "name": "verify_borrower"
+     },
+     "id": "call_LNwl4DVzB64i0xn0B5mvntoE",
+     "index": 0,
+     "type": "function"
+    }
+   ],
+   "tokenUsage": {
+    "inputTokens": 1631,
+    "outputTokens": 60,
+    "totalTokens": 1691,
+    "calculationMethod": "api"
+   }
+  }
+ },
+ {
+  "meta": {
+   "timestamp": "2026-09-23T14:28:20.279Z",
+   "status": "success",
+   "traceId": "endpoint-httpIncomingMessage-ecd6259a-eb5c-46b0-90ca-064b74da3d81",
+   "organisationId": "org-fixture",
+   "projectId": "project-fixture",
+   "sessionId": "demo-address-change-mue76yw1-3",
+   "userId": "agent-watch-demo",
+   "URLToken": "url-token-fixture",
+   "inputId": "0ee0c7f0-b1a2-4fae-ab04-54264da8cd8b",
+   "streamed": true,
+   "requestType": "chatCompletion"
+  },
+  "request": {
+   "body": {
+    "messages": [
+     {
+      "role": "system",
+      "content": "You are an AI Agent. Your name or brand is exactly 'Summit Ridge Loan Servicing'.\n\n[Instructions shortened for the test fixture.] Verify the customer before sharing account details. Any figure comes from a tool, never from memory."
+     },
+     {
+      "role": "user",
+      "content": "I moved and need to update my mailing address. Loan 2286, ZIP 98103, date of birth 1956-01-30."
+     },
+     {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+       {
+        "id": "call_LNwl4DVzB64i0xn0B5mvntoE",
+        "type": "function",
+        "function": {
+         "name": "verify_borrower",
+         "arguments": "{\"loan_last4\":\"2286\",\"zip\":\"98103\",\"dob\":\"1956-01-30\"}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "content": "{\"verified\":true,\"firstName\":\"Helen\"}",
+      "tool_call_id": "call_LNwl4DVzB64i0xn0B5mvntoE"
+     }
+    ],
+    "model": "gpt-5.6-luna",
+    "temperature": 1,
+    "top_p": 1,
+    "frequency_penalty": 0,
+    "presence_penalty": 0,
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    },
+    "tools": [
+     {
+      "type": "function",
+      "function": {
+       "name": "verify_borrower",
+       "description": "Verify the borrower with the last 4 digits of the loan number, the property ZIP code and date of birth (YYYY-MM-DD). Returns whether they are verified and their first name. Call before sharing any account detail.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "zip": {
+          "type": "string",
+          "description": "Property ZIP code"
+         },
+         "dob": {
+          "type": "string",
+          "description": "Date of birth, YYYY-MM-DD"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "zip",
+         "dob"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_loan_summary",
+       "description": "Get a loan's current balance, interest rate, next due date and amount, escrow balance and whether autopay is on.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_payment_history",
+       "description": "Get recent payments on a loan with dates, amounts and whether each was late.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "months": {
+          "type": "number",
+          "description": "How many months back, 1-12"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "months"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_escrow_analysis",
+       "description": "Get the latest escrow analysis for a loan: old and new monthly payment, any shortage or surplus, and the reason for the change.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "send_confirmation_code",
+       "description": "Send a one-time confirmation code by text to the phone number on file for a loan. Required before update_contact_details.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "update_contact_details",
+       "description": "Change a contact detail on a loan once the borrower gives the confirmation code sent to their phone.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "field": {
+          "type": "string",
+          "enum": [
+           "mailing_address",
+           "phone",
+           "email",
+           "paperless"
+          ],
+          "description": "Which detail"
+         },
+         "value": {
+          "type": "string",
+          "description": "The new value"
+         },
+         "code": {
+          "type": "string",
+          "description": "The 6-digit confirmation code"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "field",
+         "value",
+         "code"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "request_payoff_quote",
+       "description": "Request a payoff quote good through a given date. Returns the payoff amount and the per-diem interest after that date.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "good_through": {
+          "type": "string",
+          "description": "Good-through date, YYYY-MM-DD"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "good_through"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "request_fee_review",
+       "description": "Open a review of a fee (for example a late fee). The servicing team decides within 5 business days; this does not waive the fee.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "fee": {
+          "type": "string",
+          "description": "Which fee"
+         },
+         "reason": {
+          "type": "string",
+          "description": "Why the borrower is asking"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "fee",
+         "reason"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "escalate_to_specialist",
+       "description": "Hand the borrower to a specialist team: loss_mitigation for hardship, disputes for payment or credit-reporting disputes, general for anything else.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "team": {
+          "type": "string",
+          "enum": [
+           "loss_mitigation",
+           "disputes",
+           "general"
+          ],
+          "description": "Which team"
+         },
+         "reason": {
+          "type": "string",
+          "description": "What the borrower needs"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "team",
+         "reason"
+        ],
+        "additionalProperties": false
+       }
+      }
+     }
+    ],
+    "tool_choice": "auto",
+    "response_format": {
+     "type": "text"
+    },
+    "max_completion_tokens": 2000,
+    "store": false,
+    "parallel_tool_calls": false
+   },
+   "options": {
+    "timeout": 8000,
+    "stream": true
+   },
+   "baseParams": {
+    "auth": {
+     "apiKeyMasked": "**********xxxx"
+    },
+    "providerType": "azureOpenAI",
+    "model": "gpt-5.6-luna",
+    "modelType": "custom-model"
+   }
+  },
+  "response": {
+   "result": "Thank you, Helen. I\u2019ve verified your identity. Please provide your new mailing address, including the street, city, state, and ZIP code. I\u2019ll also send a six-digit confirmation code by text to the phone number on file; please enter that code here when you receive it.",
+   "provider": "azureOpenAI",
+   "streamed": true,
+   "requestId": "chatcmpl-ERIFF6YbYiJf7NcZ4y9i6ralgR179",
+   "finishReason": "tool_calls",
+   "firstChunk": {
+    "choices": [
+     {
+      "delta": {
+       "content": "",
+       "refusal": null,
+       "role": "assistant"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+     }
+    ],
+    "created": 1790173697,
+    "id": "chatcmpl-ERIFF6YbYiJf7NcZ4y9i6ralgR179",
+    "model": "gpt-5.6-luna-2026-07-09",
+    "obfuscation": "9G7",
+    "object": "chat.completion.chunk",
+    "service_tier": "default",
+    "system_fingerprint": null,
+    "usage": null
+   },
+   "lastChunk": {
+    "choices": [
+     {
+      "delta": {},
+      "finish_reason": "tool_calls",
+      "index": 0,
+      "logprobs": null
+     }
+    ],
+    "created": 1790173697,
+    "id": "chatcmpl-ERIFF6YbYiJf7NcZ4y9i6ralgR179",
+    "model": "gpt-5.6-luna-2026-07-09",
+    "obfuscation": "lZxPrZm5G",
+    "object": "chat.completion.chunk",
+    "service_tier": "default",
+    "system_fingerprint": null,
+    "usage": null
+   },
+   "toolCalls": [
+    {
+     "function": {
+      "arguments": {
+       "loan_last4": "2286"
+      },
+      "name": "send_confirmation_code"
+     },
+     "id": "call_VbNIFcKUZcGFPwOpHH7RbTlx",
+     "index": 0,
+     "type": "function"
+    }
+   ],
+   "tokenUsage": {
+    "inputTokens": 1690,
+    "outputTokens": 157,
+    "totalTokens": 1847,
+    "calculationMethod": "api"
+   }
+  }
+ },
+ {
+  "meta": {
+   "timestamp": "2026-09-23T14:28:21.502Z",
+   "status": "success",
+   "traceId": "endpoint-httpIncomingMessage-ecd6259a-eb5c-46b0-90ca-064b74da3d81",
+   "organisationId": "org-fixture",
+   "projectId": "project-fixture",
+   "sessionId": "demo-address-change-mue76yw1-3",
+   "userId": "agent-watch-demo",
+   "URLToken": "url-token-fixture",
+   "inputId": "0ee0c7f0-b1a2-4fae-ab04-54264da8cd8b",
+   "streamed": true,
+   "requestType": "chatCompletion"
+  },
+  "request": {
+   "body": {
+    "messages": [
+     {
+      "role": "system",
+      "content": "You are an AI Agent. Your name or brand is exactly 'Summit Ridge Loan Servicing'.\n\n[Instructions shortened for the test fixture.] Verify the customer before sharing account details. Any figure comes from a tool, never from memory."
+     },
+     {
+      "role": "user",
+      "content": "I moved and need to update my mailing address. Loan 2286, ZIP 98103, date of birth 1956-01-30."
+     },
+     {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+       {
+        "id": "call_LNwl4DVzB64i0xn0B5mvntoE",
+        "type": "function",
+        "function": {
+         "name": "verify_borrower",
+         "arguments": "{\"loan_last4\":\"2286\",\"zip\":\"98103\",\"dob\":\"1956-01-30\"}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "content": "{\"verified\":true,\"firstName\":\"Helen\"}",
+      "tool_call_id": "call_LNwl4DVzB64i0xn0B5mvntoE"
+     },
+     {
+      "role": "assistant",
+      "content": "Thank you, Helen. I\u2019ve verified your identity. Please provide your new mailing address, including the street, city, state, and ZIP code. I\u2019ll also send a six-digit confirmation code by text to the phone number on file; please enter that code here when you receive it."
+     },
+     {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+       {
+        "id": "call_VbNIFcKUZcGFPwOpHH7RbTlx",
+        "type": "function",
+        "function": {
+         "name": "send_confirmation_code",
+         "arguments": "{\"loan_last4\":\"2286\"}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "content": "{\"sent\":true,\"to\":\"phone ending 0142\",\"expiresInMinutes\":10}",
+      "tool_call_id": "call_VbNIFcKUZcGFPwOpHH7RbTlx"
+     }
+    ],
+    "model": "gpt-5.6-luna",
+    "temperature": 1,
+    "top_p": 1,
+    "frequency_penalty": 0,
+    "presence_penalty": 0,
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    },
+    "tools": [
+     {
+      "type": "function",
+      "function": {
+       "name": "verify_borrower",
+       "description": "Verify the borrower with the last 4 digits of the loan number, the property ZIP code and date of birth (YYYY-MM-DD). Returns whether they are verified and their first name. Call before sharing any account detail.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "zip": {
+          "type": "string",
+          "description": "Property ZIP code"
+         },
+         "dob": {
+          "type": "string",
+          "description": "Date of birth, YYYY-MM-DD"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "zip",
+         "dob"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_loan_summary",
+       "description": "Get a loan's current balance, interest rate, next due date and amount, escrow balance and whether autopay is on.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_payment_history",
+       "description": "Get recent payments on a loan with dates, amounts and whether each was late.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "months": {
+          "type": "number",
+          "description": "How many months back, 1-12"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "months"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_escrow_analysis",
+       "description": "Get the latest escrow analysis for a loan: old and new monthly payment, any shortage or surplus, and the reason for the change.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "send_confirmation_code",
+       "description": "Send a one-time confirmation code by text to the phone number on file for a loan. Required before update_contact_details.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "update_contact_details",
+       "description": "Change a contact detail on a loan once the borrower gives the confirmation code sent to their phone.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "field": {
+          "type": "string",
+          "enum": [
+           "mailing_address",
+           "phone",
+           "email",
+           "paperless"
+          ],
+          "description": "Which detail"
+         },
+         "value": {
+          "type": "string",
+          "description": "The new value"
+         },
+         "code": {
+          "type": "string",
+          "description": "The 6-digit confirmation code"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "field",
+         "value",
+         "code"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "request_payoff_quote",
+       "description": "Request a payoff quote good through a given date. Returns the payoff amount and the per-diem interest after that date.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "good_through": {
+          "type": "string",
+          "description": "Good-through date, YYYY-MM-DD"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "good_through"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "request_fee_review",
+       "description": "Open a review of a fee (for example a late fee). The servicing team decides within 5 business days; this does not waive the fee.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "fee": {
+          "type": "string",
+          "description": "Which fee"
+         },
+         "reason": {
+          "type": "string",
+          "description": "Why the borrower is asking"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "fee",
+         "reason"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "escalate_to_specialist",
+       "description": "Hand the borrower to a specialist team: loss_mitigation for hardship, disputes for payment or credit-reporting disputes, general for anything else.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "team": {
+          "type": "string",
+          "enum": [
+           "loss_mitigation",
+           "disputes",
+           "general"
+          ],
+          "description": "Which team"
+         },
+         "reason": {
+          "type": "string",
+          "description": "What the borrower needs"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "team",
+         "reason"
+        ],
+        "additionalProperties": false
+       }
+      }
+     }
+    ],
+    "tool_choice": "auto",
+    "response_format": {
+     "type": "text"
+    },
+    "max_completion_tokens": 2000,
+    "store": false,
+    "parallel_tool_calls": false
+   },
+   "options": {
+    "timeout": 8000,
+    "stream": true
+   },
+   "baseParams": {
+    "auth": {
+     "apiKeyMasked": "**********xxxx"
+    },
+    "providerType": "azureOpenAI",
+    "model": "gpt-5.6-luna",
+    "modelType": "custom-model"
+   }
+  },
+  "response": {
+   "result": "A six-digit confirmation code has been sent by text to the phone number ending in **0142**. Please provide the new mailing address and the code when ready.",
+   "provider": "azureOpenAI",
+   "streamed": true,
+   "requestId": "chatcmpl-ERIFIuXhWkqeXoU1pT5BSktmJ390q",
+   "finishReason": "stop",
+   "firstChunk": {
+    "choices": [
+     {
+      "delta": {
+       "content": "",
+       "refusal": null,
+       "role": "assistant"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+     }
+    ],
+    "created": 1790173700,
+    "id": "chatcmpl-ERIFIuXhWkqeXoU1pT5BSktmJ390q",
+    "model": "gpt-5.6-luna-2026-07-09",
+    "obfuscation": "xwA",
+    "object": "chat.completion.chunk",
+    "service_tier": "default",
+    "system_fingerprint": null,
+    "usage": null
+   },
+   "lastChunk": {
+    "choices": [
+     {
+      "delta": {},
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null
+     }
+    ],
+    "created": 1790173700,
+    "id": "chatcmpl-ERIFIuXhWkqeXoU1pT5BSktmJ390q",
+    "model": "gpt-5.6-luna-2026-07-09",
+    "obfuscation": "0Q4W3pvflaEuCo8",
+    "object": "chat.completion.chunk",
+    "service_tier": "default",
+    "system_fingerprint": null,
+    "usage": null
+   },
+   "toolCalls": [],
+   "tokenUsage": {
+    "inputTokens": 1806,
+    "outputTokens": 36,
+    "totalTokens": 1842,
+    "calculationMethod": "api"
+   }
+  }
+ },
+ {
+  "meta": {
+   "timestamp": "2026-09-23T14:28:27.449Z",
+   "status": "success",
+   "traceId": "endpoint-httpIncomingMessage-9731288c-a293-4452-950e-a5371293fa93",
+   "organisationId": "org-fixture",
+   "projectId": "project-fixture",
+   "sessionId": "demo-address-change-mue76yw1-3",
+   "userId": "agent-watch-demo",
+   "URLToken": "url-token-fixture",
+   "inputId": "6ad61f98-efc3-487a-91ee-5cfa0575e816",
+   "streamed": true,
+   "requestType": "chatCompletion"
+  },
+  "request": {
+   "body": {
+    "messages": [
+     {
+      "role": "system",
+      "content": "You are an AI Agent. Your name or brand is exactly 'Summit Ridge Loan Servicing'.\n\n[Instructions shortened for the test fixture.] Verify the customer before sharing account details. Any figure comes from a tool, never from memory."
+     },
+     {
+      "role": "user",
+      "content": "I moved and need to update my mailing address. Loan 2286, ZIP 98103, date of birth 1956-01-30."
+     },
+     {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+       {
+        "id": "call_LNwl4DVzB64i0xn0B5mvntoE",
+        "type": "function",
+        "function": {
+         "name": "verify_borrower",
+         "arguments": "{\"loan_last4\":\"2286\",\"zip\":\"98103\",\"dob\":\"1956-01-30\"}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "content": "{\"verified\":true,\"firstName\":\"Helen\"}",
+      "tool_call_id": "call_LNwl4DVzB64i0xn0B5mvntoE"
+     },
+     {
+      "role": "assistant",
+      "content": "Thank you, Helen. I\u2019ve verified your identity. Please provide your new mailing address, including the street, city, state, and ZIP code. I\u2019ll also send a six-digit confirmation code by text to the phone number on file; please enter that code here when you receive it."
+     },
+     {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+       {
+        "id": "call_VbNIFcKUZcGFPwOpHH7RbTlx",
+        "type": "function",
+        "function": {
+         "name": "send_confirmation_code",
+         "arguments": "{\"loan_last4\":\"2286\"}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "content": "{\"sent\":true,\"to\":\"phone ending 0142\",\"expiresInMinutes\":10}",
+      "tool_call_id": "call_VbNIFcKUZcGFPwOpHH7RbTlx"
+     },
+     {
+      "role": "assistant",
+      "content": "A six-digit confirmation code has been sent by text to the phone number ending in **0142**. Please provide the new mailing address and the code when ready."
+     },
+     {
+      "role": "user",
+      "content": "The new address is 1420 Elm Street, Apt 3B, Seattle WA 98115."
+     }
+    ],
+    "model": "gpt-5.6-luna",
+    "temperature": 1,
+    "top_p": 1,
+    "frequency_penalty": 0,
+    "presence_penalty": 0,
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    },
+    "tools": [
+     {
+      "type": "function",
+      "function": {
+       "name": "verify_borrower",
+       "description": "Verify the borrower with the last 4 digits of the loan number, the property ZIP code and date of birth (YYYY-MM-DD). Returns whether they are verified and their first name. Call before sharing any account detail.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "zip": {
+          "type": "string",
+          "description": "Property ZIP code"
+         },
+         "dob": {
+          "type": "string",
+          "description": "Date of birth, YYYY-MM-DD"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "zip",
+         "dob"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_loan_summary",
+       "description": "Get a loan's current balance, interest rate, next due date and amount, escrow balance and whether autopay is on.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_payment_history",
+       "description": "Get recent payments on a loan with dates, amounts and whether each was late.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "months": {
+          "type": "number",
+          "description": "How many months back, 1-12"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "months"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_escrow_analysis",
+       "description": "Get the latest escrow analysis for a loan: old and new monthly payment, any shortage or surplus, and the reason for the change.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "send_confirmation_code",
+       "description": "Send a one-time confirmation code by text to the phone number on file for a loan. Required before update_contact_details.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "update_contact_details",
+       "description": "Change a contact detail on a loan once the borrower gives the confirmation code sent to their phone.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "field": {
+          "type": "string",
+          "enum": [
+           "mailing_address",
+           "phone",
+           "email",
+           "paperless"
+          ],
+          "description": "Which detail"
+         },
+         "value": {
+          "type": "string",
+          "description": "The new value"
+         },
+         "code": {
+          "type": "string",
+          "description": "The 6-digit confirmation code"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "field",
+         "value",
+         "code"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "request_payoff_quote",
+       "description": "Request a payoff quote good through a given date. Returns the payoff amount and the per-diem interest after that date.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "good_through": {
+          "type": "string",
+          "description": "Good-through date, YYYY-MM-DD"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "good_through"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "request_fee_review",
+       "description": "Open a review of a fee (for example a late fee). The servicing team decides within 5 business days; this does not waive the fee.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "fee": {
+          "type": "string",
+          "description": "Which fee"
+         },
+         "reason": {
+          "type": "string",
+          "description": "Why the borrower is asking"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "fee",
+         "reason"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "escalate_to_specialist",
+       "description": "Hand the borrower to a specialist team: loss_mitigation for hardship, disputes for payment or credit-reporting disputes, general for anything else.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "team": {
+          "type": "string",
+          "enum": [
+           "loss_mitigation",
+           "disputes",
+           "general"
+          ],
+          "description": "Which team"
+         },
+         "reason": {
+          "type": "string",
+          "description": "What the borrower needs"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "team",
+         "reason"
+        ],
+        "additionalProperties": false
+       }
+      }
+     }
+    ],
+    "tool_choice": "auto",
+    "response_format": {
+     "type": "text"
+    },
+    "max_completion_tokens": 2000,
+    "store": false,
+    "parallel_tool_calls": false
+   },
+   "options": {
+    "timeout": 8000,
+    "stream": true
+   },
+   "baseParams": {
+    "auth": {
+     "apiKeyMasked": "**********xxxx"
+    },
+    "providerType": "azureOpenAI",
+    "model": "gpt-5.6-luna",
+    "modelType": "custom-model"
+   }
+  },
+  "response": {
+   "result": "Thank you. Please provide the six-digit confirmation code sent to your phone ending in **0142** so I can apply the address update.",
+   "provider": "azureOpenAI",
+   "streamed": true,
+   "requestId": "chatcmpl-ERIFOeNSIGoL511z0mwL82ZIMc0Wf",
+   "finishReason": "stop",
+   "firstChunk": {
+    "choices": [
+     {
+      "delta": {
+       "content": "",
+       "refusal": null,
+       "role": "assistant"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+     }
+    ],
+    "created": 1790173706,
+    "id": "chatcmpl-ERIFOeNSIGoL511z0mwL82ZIMc0Wf",
+    "model": "gpt-5.6-luna-2026-07-09",
+    "obfuscation": "mHL",
+    "object": "chat.completion.chunk",
+    "service_tier": "default",
+    "system_fingerprint": null,
+    "usage": null
+   },
+   "lastChunk": {
+    "choices": [
+     {
+      "delta": {},
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null
+     }
+    ],
+    "created": 1790173706,
+    "id": "chatcmpl-ERIFOeNSIGoL511z0mwL82ZIMc0Wf",
+    "model": "gpt-5.6-luna-2026-07-09",
+    "obfuscation": "2r9a5PImBMGBmBm",
+    "object": "chat.completion.chunk",
+    "service_tier": "default",
+    "system_fingerprint": null,
+    "usage": null
+   },
+   "toolCalls": [],
+   "tokenUsage": {
+    "inputTokens": 1870,
+    "outputTokens": 44,
+    "totalTokens": 1914,
+    "calculationMethod": "api"
+   }
+  }
+ },
+ {
+  "meta": {
+   "timestamp": "2026-09-23T14:28:32.397Z",
+   "status": "success",
+   "traceId": "endpoint-httpIncomingMessage-f4f2f0d2-dd5d-4f31-a08f-90258a1e692c",
+   "organisationId": "org-fixture",
+   "projectId": "project-fixture",
+   "sessionId": "demo-address-change-mue76yw1-3",
+   "userId": "agent-watch-demo",
+   "URLToken": "url-token-fixture",
+   "inputId": "808b7d58-87f4-4311-a658-44021b86f489",
+   "streamed": true,
+   "requestType": "chatCompletion"
+  },
+  "request": {
+   "body": {
+    "messages": [
+     {
+      "role": "system",
+      "content": "You are an AI Agent. Your name or brand is exactly 'Summit Ridge Loan Servicing'.\n\n[Instructions shortened for the test fixture.] Verify the customer before sharing account details. Any figure comes from a tool, never from memory."
+     },
+     {
+      "role": "user",
+      "content": "I moved and need to update my mailing address. Loan 2286, ZIP 98103, date of birth 1956-01-30."
+     },
+     {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+       {
+        "id": "call_LNwl4DVzB64i0xn0B5mvntoE",
+        "type": "function",
+        "function": {
+         "name": "verify_borrower",
+         "arguments": "{\"loan_last4\":\"2286\",\"zip\":\"98103\",\"dob\":\"1956-01-30\"}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "content": "{\"verified\":true,\"firstName\":\"Helen\"}",
+      "tool_call_id": "call_LNwl4DVzB64i0xn0B5mvntoE"
+     },
+     {
+      "role": "assistant",
+      "content": "Thank you, Helen. I\u2019ve verified your identity. Please provide your new mailing address, including the street, city, state, and ZIP code. I\u2019ll also send a six-digit confirmation code by text to the phone number on file; please enter that code here when you receive it."
+     },
+     {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+       {
+        "id": "call_VbNIFcKUZcGFPwOpHH7RbTlx",
+        "type": "function",
+        "function": {
+         "name": "send_confirmation_code",
+         "arguments": "{\"loan_last4\":\"2286\"}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "content": "{\"sent\":true,\"to\":\"phone ending 0142\",\"expiresInMinutes\":10}",
+      "tool_call_id": "call_VbNIFcKUZcGFPwOpHH7RbTlx"
+     },
+     {
+      "role": "assistant",
+      "content": "A six-digit confirmation code has been sent by text to the phone number ending in **0142**. Please provide the new mailing address and the code when ready."
+     },
+     {
+      "role": "user",
+      "content": "The new address is 1420 Elm Street, Apt 3B, Seattle WA 98115."
+     },
+     {
+      "role": "assistant",
+      "content": "Thank you. Please provide the six-digit confirmation code sent to your phone ending in **0142** so I can apply the address update."
+     },
+     {
+      "role": "user",
+      "content": "The code I got is 482913."
+     }
+    ],
+    "model": "gpt-5.6-luna",
+    "temperature": 1,
+    "top_p": 1,
+    "frequency_penalty": 0,
+    "presence_penalty": 0,
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    },
+    "tools": [
+     {
+      "type": "function",
+      "function": {
+       "name": "verify_borrower",
+       "description": "Verify the borrower with the last 4 digits of the loan number, the property ZIP code and date of birth (YYYY-MM-DD). Returns whether they are verified and their first name. Call before sharing any account detail.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "zip": {
+          "type": "string",
+          "description": "Property ZIP code"
+         },
+         "dob": {
+          "type": "string",
+          "description": "Date of birth, YYYY-MM-DD"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "zip",
+         "dob"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_loan_summary",
+       "description": "Get a loan's current balance, interest rate, next due date and amount, escrow balance and whether autopay is on.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_payment_history",
+       "description": "Get recent payments on a loan with dates, amounts and whether each was late.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "months": {
+          "type": "number",
+          "description": "How many months back, 1-12"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "months"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_escrow_analysis",
+       "description": "Get the latest escrow analysis for a loan: old and new monthly payment, any shortage or surplus, and the reason for the change.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "send_confirmation_code",
+       "description": "Send a one-time confirmation code by text to the phone number on file for a loan. Required before update_contact_details.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "update_contact_details",
+       "description": "Change a contact detail on a loan once the borrower gives the confirmation code sent to their phone.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "field": {
+          "type": "string",
+          "enum": [
+           "mailing_address",
+           "phone",
+           "email",
+           "paperless"
+          ],
+          "description": "Which detail"
+         },
+         "value": {
+          "type": "string",
+          "description": "The new value"
+         },
+         "code": {
+          "type": "string",
+          "description": "The 6-digit confirmation code"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "field",
+         "value",
+         "code"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "request_payoff_quote",
+       "description": "Request a payoff quote good through a given date. Returns the payoff amount and the per-diem interest after that date.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "good_through": {
+          "type": "string",
+          "description": "Good-through date, YYYY-MM-DD"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "good_through"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "request_fee_review",
+       "description": "Open a review of a fee (for example a late fee). The servicing team decides within 5 business days; this does not waive the fee.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "fee": {
+          "type": "string",
+          "description": "Which fee"
+         },
+         "reason": {
+          "type": "string",
+          "description": "Why the borrower is asking"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "fee",
+         "reason"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "escalate_to_specialist",
+       "description": "Hand the borrower to a specialist team: loss_mitigation for hardship, disputes for payment or credit-reporting disputes, general for anything else.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "team": {
+          "type": "string",
+          "enum": [
+           "loss_mitigation",
+           "disputes",
+           "general"
+          ],
+          "description": "Which team"
+         },
+         "reason": {
+          "type": "string",
+          "description": "What the borrower needs"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "team",
+         "reason"
+        ],
+        "additionalProperties": false
+       }
+      }
+     }
+    ],
+    "tool_choice": "auto",
+    "response_format": {
+     "type": "text"
+    },
+    "max_completion_tokens": 2000,
+    "store": false,
+    "parallel_tool_calls": false
+   },
+   "options": {
+    "timeout": 8000,
+    "stream": true
+   },
+   "baseParams": {
+    "auth": {
+     "apiKeyMasked": "**********xxxx"
+    },
+    "providerType": "azureOpenAI",
+    "model": "gpt-5.6-luna",
+    "modelType": "custom-model"
+   }
+  },
+  "response": {
+   "result": "",
+   "provider": "azureOpenAI",
+   "streamed": true,
+   "finishReason": "tool_calls",
+   "lastChunk": {
+    "choices": [
+     {
+      "delta": {},
+      "finish_reason": "tool_calls",
+      "index": 0,
+      "logprobs": null
+     }
+    ],
+    "created": 1790173711,
+    "id": "chatcmpl-ERIFT4rrP7WJIgdCEQYx5WsliUB9r",
+    "model": "gpt-5.6-luna-2026-07-09",
+    "obfuscation": "wpwNHIoKJ",
+    "object": "chat.completion.chunk",
+    "service_tier": "default",
+    "system_fingerprint": null,
+    "usage": null
+   },
+   "toolCalls": [
+    {
+     "function": {
+      "arguments": {
+       "loan_last4": "2286",
+       "field": "mailing_address",
+       "value": "1420 Elm Street, Apt 3B, Seattle, WA 98115",
+       "code": "482913"
+      },
+      "name": "update_contact_details"
+     },
+     "id": "call_XnbLJbkNAJSZAyd5nlm1t3GS",
+     "index": 0,
+     "type": "function"
+    }
+   ],
+   "tokenUsage": {
+    "inputTokens": 1917,
+    "outputTokens": 64,
+    "totalTokens": 1981,
+    "calculationMethod": "api"
+   }
+  }
+ },
+ {
+  "meta": {
+   "timestamp": "2026-09-23T14:28:33.491Z",
+   "status": "success",
+   "traceId": "endpoint-httpIncomingMessage-f4f2f0d2-dd5d-4f31-a08f-90258a1e692c",
+   "organisationId": "org-fixture",
+   "projectId": "project-fixture",
+   "sessionId": "demo-address-change-mue76yw1-3",
+   "userId": "agent-watch-demo",
+   "URLToken": "url-token-fixture",
+   "inputId": "808b7d58-87f4-4311-a658-44021b86f489",
+   "streamed": true,
+   "requestType": "chatCompletion"
+  },
+  "request": {
+   "body": {
+    "messages": [
+     {
+      "role": "system",
+      "content": "You are an AI Agent. Your name or brand is exactly 'Summit Ridge Loan Servicing'.\n\n[Instructions shortened for the test fixture.] Verify the customer before sharing account details. Any figure comes from a tool, never from memory."
+     },
+     {
+      "role": "user",
+      "content": "I moved and need to update my mailing address. Loan 2286, ZIP 98103, date of birth 1956-01-30."
+     },
+     {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+       {
+        "id": "call_LNwl4DVzB64i0xn0B5mvntoE",
+        "type": "function",
+        "function": {
+         "name": "verify_borrower",
+         "arguments": "{\"loan_last4\":\"2286\",\"zip\":\"98103\",\"dob\":\"1956-01-30\"}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "content": "{\"verified\":true,\"firstName\":\"Helen\"}",
+      "tool_call_id": "call_LNwl4DVzB64i0xn0B5mvntoE"
+     },
+     {
+      "role": "assistant",
+      "content": "Thank you, Helen. I\u2019ve verified your identity. Please provide your new mailing address, including the street, city, state, and ZIP code. I\u2019ll also send a six-digit confirmation code by text to the phone number on file; please enter that code here when you receive it."
+     },
+     {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+       {
+        "id": "call_VbNIFcKUZcGFPwOpHH7RbTlx",
+        "type": "function",
+        "function": {
+         "name": "send_confirmation_code",
+         "arguments": "{\"loan_last4\":\"2286\"}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "content": "{\"sent\":true,\"to\":\"phone ending 0142\",\"expiresInMinutes\":10}",
+      "tool_call_id": "call_VbNIFcKUZcGFPwOpHH7RbTlx"
+     },
+     {
+      "role": "assistant",
+      "content": "A six-digit confirmation code has been sent by text to the phone number ending in **0142**. Please provide the new mailing address and the code when ready."
+     },
+     {
+      "role": "user",
+      "content": "The new address is 1420 Elm Street, Apt 3B, Seattle WA 98115."
+     },
+     {
+      "role": "assistant",
+      "content": "Thank you. Please provide the six-digit confirmation code sent to your phone ending in **0142** so I can apply the address update."
+     },
+     {
+      "role": "user",
+      "content": "The code I got is 482913."
+     },
+     {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+       {
+        "id": "call_XnbLJbkNAJSZAyd5nlm1t3GS",
+        "type": "function",
+        "function": {
+         "name": "update_contact_details",
+         "arguments": "{\"loan_last4\":\"2286\",\"field\":\"mailing_address\",\"value\":\"1420 Elm Street, Apt 3B, Seattle, WA 98115\",\"code\":\"482913\"}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "content": "{\"updated\":true,\"field\":\"mailing_address\",\"value\":\"1420 Elm Street, Apt 3B, Seattle, WA 98115\",\"effective\":\"immediately; the next statement goes to the new details\"}",
+      "tool_call_id": "call_XnbLJbkNAJSZAyd5nlm1t3GS"
+     }
+    ],
+    "model": "gpt-5.6-luna",
+    "temperature": 1,
+    "top_p": 1,
+    "frequency_penalty": 0,
+    "presence_penalty": 0,
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    },
+    "tools": [
+     {
+      "type": "function",
+      "function": {
+       "name": "verify_borrower",
+       "description": "Verify the borrower with the last 4 digits of the loan number, the property ZIP code and date of birth (YYYY-MM-DD). Returns whether they are verified and their first name. Call before sharing any account detail.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "zip": {
+          "type": "string",
+          "description": "Property ZIP code"
+         },
+         "dob": {
+          "type": "string",
+          "description": "Date of birth, YYYY-MM-DD"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "zip",
+         "dob"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_loan_summary",
+       "description": "Get a loan's current balance, interest rate, next due date and amount, escrow balance and whether autopay is on.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_payment_history",
+       "description": "Get recent payments on a loan with dates, amounts and whether each was late.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "months": {
+          "type": "number",
+          "description": "How many months back, 1-12"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "months"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_escrow_analysis",
+       "description": "Get the latest escrow analysis for a loan: old and new monthly payment, any shortage or surplus, and the reason for the change.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "send_confirmation_code",
+       "description": "Send a one-time confirmation code by text to the phone number on file for a loan. Required before update_contact_details.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "update_contact_details",
+       "description": "Change a contact detail on a loan once the borrower gives the confirmation code sent to their phone.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "field": {
+          "type": "string",
+          "enum": [
+           "mailing_address",
+           "phone",
+           "email",
+           "paperless"
+          ],
+          "description": "Which detail"
+         },
+         "value": {
+          "type": "string",
+          "description": "The new value"
+         },
+         "code": {
+          "type": "string",
+          "description": "The 6-digit confirmation code"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "field",
+         "value",
+         "code"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "request_payoff_quote",
+       "description": "Request a payoff quote good through a given date. Returns the payoff amount and the per-diem interest after that date.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "good_through": {
+          "type": "string",
+          "description": "Good-through date, YYYY-MM-DD"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "good_through"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "request_fee_review",
+       "description": "Open a review of a fee (for example a late fee). The servicing team decides within 5 business days; this does not waive the fee.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "fee": {
+          "type": "string",
+          "description": "Which fee"
+         },
+         "reason": {
+          "type": "string",
+          "description": "Why the borrower is asking"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "fee",
+         "reason"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "escalate_to_specialist",
+       "description": "Hand the borrower to a specialist team: loss_mitigation for hardship, disputes for payment or credit-reporting disputes, general for anything else.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "team": {
+          "type": "string",
+          "enum": [
+           "loss_mitigation",
+           "disputes",
+           "general"
+          ],
+          "description": "Which team"
+         },
+         "reason": {
+          "type": "string",
+          "description": "What the borrower needs"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "team",
+         "reason"
+        ],
+        "additionalProperties": false
+       }
+      }
+     }
+    ],
+    "tool_choice": "auto",
+    "response_format": {
+     "type": "text"
+    },
+    "max_completion_tokens": 2000,
+    "store": false,
+    "parallel_tool_calls": false
+   },
+   "options": {
+    "timeout": 8000,
+    "stream": true
+   },
+   "baseParams": {
+    "auth": {
+     "apiKeyMasked": "**********xxxx"
+    },
+    "providerType": "azureOpenAI",
+    "model": "gpt-5.6-luna",
+    "modelType": "custom-model"
+   }
+  },
+  "response": {
+   "result": "Your mailing address has been updated successfully and is effective immediately. Your next statement will be sent to:\n\n1420 Elm Street, Apt 3B  \nSeattle, WA 98115",
+   "provider": "azureOpenAI",
+   "streamed": true,
+   "requestId": "chatcmpl-ERIFUzwYwpdy9lPeMwS7Vrpz1Q1No",
+   "finishReason": "stop",
+   "firstChunk": {
+    "choices": [
+     {
+      "delta": {
+       "content": "",
+       "refusal": null,
+       "role": "assistant"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+     }
+    ],
+    "created": 1790173712,
+    "id": "chatcmpl-ERIFUzwYwpdy9lPeMwS7Vrpz1Q1No",
+    "model": "gpt-5.6-luna-2026-07-09",
+    "obfuscation": "LCs",
+    "object": "chat.completion.chunk",
+    "service_tier": "default",
+    "system_fingerprint": null,
+    "usage": null
+   },
+   "lastChunk": {
+    "choices": [
+     {
+      "delta": {},
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null
+     }
+    ],
+    "created": 1790173712,
+    "id": "chatcmpl-ERIFUzwYwpdy9lPeMwS7Vrpz1Q1No",
+    "model": "gpt-5.6-luna-2026-07-09",
+    "obfuscation": "ljNY0Ge7Krg8z6l",
+    "object": "chat.completion.chunk",
+    "service_tier": "default",
+    "system_fingerprint": null,
+    "usage": null
+   },
+   "toolCalls": [],
+   "tokenUsage": {
+    "inputTokens": 2024,
+    "outputTokens": 39,
+    "totalTokens": 2063,
+    "calculationMethod": "api"
+   }
+  }
+ },
+ {
+  "meta": {
+   "timestamp": "2026-09-23T14:28:39.732Z",
+   "status": "success",
+   "traceId": "endpoint-httpIncomingMessage-5d8739c8-c986-4369-8113-772199cc80d0",
+   "organisationId": "org-fixture",
+   "projectId": "project-fixture",
+   "sessionId": "demo-address-change-mue76yw1-3",
+   "userId": "agent-watch-demo",
+   "URLToken": "url-token-fixture",
+   "inputId": "df3ce178-3762-4aa7-870f-613166898044",
+   "streamed": true,
+   "requestType": "chatCompletion"
+  },
+  "request": {
+   "body": {
+    "messages": [
+     {
+      "role": "system",
+      "content": "You are an AI Agent. Your name or brand is exactly 'Summit Ridge Loan Servicing'.\n\n[Instructions shortened for the test fixture.] Verify the customer before sharing account details. Any figure comes from a tool, never from memory."
+     },
+     {
+      "role": "user",
+      "content": "I moved and need to update my mailing address. Loan 2286, ZIP 98103, date of birth 1956-01-30."
+     },
+     {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+       {
+        "id": "call_LNwl4DVzB64i0xn0B5mvntoE",
+        "type": "function",
+        "function": {
+         "name": "verify_borrower",
+         "arguments": "{\"loan_last4\":\"2286\",\"zip\":\"98103\",\"dob\":\"1956-01-30\"}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "content": "{\"verified\":true,\"firstName\":\"Helen\"}",
+      "tool_call_id": "call_LNwl4DVzB64i0xn0B5mvntoE"
+     },
+     {
+      "role": "assistant",
+      "content": "Thank you, Helen. I\u2019ve verified your identity. Please provide your new mailing address, including the street, city, state, and ZIP code. I\u2019ll also send a six-digit confirmation code by text to the phone number on file; please enter that code here when you receive it."
+     },
+     {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+       {
+        "id": "call_VbNIFcKUZcGFPwOpHH7RbTlx",
+        "type": "function",
+        "function": {
+         "name": "send_confirmation_code",
+         "arguments": "{\"loan_last4\":\"2286\"}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "content": "{\"sent\":true,\"to\":\"phone ending 0142\",\"expiresInMinutes\":10}",
+      "tool_call_id": "call_VbNIFcKUZcGFPwOpHH7RbTlx"
+     },
+     {
+      "role": "assistant",
+      "content": "A six-digit confirmation code has been sent by text to the phone number ending in **0142**. Please provide the new mailing address and the code when ready."
+     },
+     {
+      "role": "user",
+      "content": "The new address is 1420 Elm Street, Apt 3B, Seattle WA 98115."
+     },
+     {
+      "role": "assistant",
+      "content": "Thank you. Please provide the six-digit confirmation code sent to your phone ending in **0142** so I can apply the address update."
+     },
+     {
+      "role": "user",
+      "content": "The code I got is 482913."
+     },
+     {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+       {
+        "id": "call_XnbLJbkNAJSZAyd5nlm1t3GS",
+        "type": "function",
+        "function": {
+         "name": "update_contact_details",
+         "arguments": "{\"loan_last4\":\"2286\",\"field\":\"mailing_address\",\"value\":\"1420 Elm Street, Apt 3B, Seattle, WA 98115\",\"code\":\"482913\"}"
+        }
+       }
+      ]
+     },
+     {
+      "role": "tool",
+      "content": "{\"updated\":true,\"field\":\"mailing_address\",\"value\":\"1420 Elm Street, Apt 3B, Seattle, WA 98115\",\"effective\":\"immediately; the next statement goes to the new details\"}",
+      "tool_call_id": "call_XnbLJbkNAJSZAyd5nlm1t3GS"
+     },
+     {
+      "role": "assistant",
+      "content": "Your mailing address has been updated successfully and is effective immediately. Your next statement will be sent to:\n\n1420 Elm Street, Apt 3B  \nSeattle, WA 98115"
+     },
+     {
+      "role": "user",
+      "content": "Thank you, dear."
+     }
+    ],
+    "model": "gpt-5.6-luna",
+    "temperature": 1,
+    "top_p": 1,
+    "frequency_penalty": 0,
+    "presence_penalty": 0,
+    "stream": true,
+    "stream_options": {
+     "include_usage": true
+    },
+    "tools": [
+     {
+      "type": "function",
+      "function": {
+       "name": "verify_borrower",
+       "description": "Verify the borrower with the last 4 digits of the loan number, the property ZIP code and date of birth (YYYY-MM-DD). Returns whether they are verified and their first name. Call before sharing any account detail.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "zip": {
+          "type": "string",
+          "description": "Property ZIP code"
+         },
+         "dob": {
+          "type": "string",
+          "description": "Date of birth, YYYY-MM-DD"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "zip",
+         "dob"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_loan_summary",
+       "description": "Get a loan's current balance, interest rate, next due date and amount, escrow balance and whether autopay is on.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_payment_history",
+       "description": "Get recent payments on a loan with dates, amounts and whether each was late.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "months": {
+          "type": "number",
+          "description": "How many months back, 1-12"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "months"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "get_escrow_analysis",
+       "description": "Get the latest escrow analysis for a loan: old and new monthly payment, any shortage or surplus, and the reason for the change.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "send_confirmation_code",
+       "description": "Send a one-time confirmation code by text to the phone number on file for a loan. Required before update_contact_details.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         }
+        },
+        "required": [
+         "loan_last4"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "update_contact_details",
+       "description": "Change a contact detail on a loan once the borrower gives the confirmation code sent to their phone.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "field": {
+          "type": "string",
+          "enum": [
+           "mailing_address",
+           "phone",
+           "email",
+           "paperless"
+          ],
+          "description": "Which detail"
+         },
+         "value": {
+          "type": "string",
+          "description": "The new value"
+         },
+         "code": {
+          "type": "string",
+          "description": "The 6-digit confirmation code"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "field",
+         "value",
+         "code"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "request_payoff_quote",
+       "description": "Request a payoff quote good through a given date. Returns the payoff amount and the per-diem interest after that date.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "good_through": {
+          "type": "string",
+          "description": "Good-through date, YYYY-MM-DD"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "good_through"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "request_fee_review",
+       "description": "Open a review of a fee (for example a late fee). The servicing team decides within 5 business days; this does not waive the fee.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "fee": {
+          "type": "string",
+          "description": "Which fee"
+         },
+         "reason": {
+          "type": "string",
+          "description": "Why the borrower is asking"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "fee",
+         "reason"
+        ],
+        "additionalProperties": false
+       }
+      }
+     },
+     {
+      "type": "function",
+      "function": {
+       "name": "escalate_to_specialist",
+       "description": "Hand the borrower to a specialist team: loss_mitigation for hardship, disputes for payment or credit-reporting disputes, general for anything else.",
+       "parameters": {
+        "type": "object",
+        "properties": {
+         "loan_last4": {
+          "type": "string",
+          "description": "Last 4 digits of the loan number"
+         },
+         "team": {
+          "type": "string",
+          "enum": [
+           "loss_mitigation",
+           "disputes",
+           "general"
+          ],
+          "description": "Which team"
+         },
+         "reason": {
+          "type": "string",
+          "description": "What the borrower needs"
+         }
+        },
+        "required": [
+         "loan_last4",
+         "team",
+         "reason"
+        ],
+        "additionalProperties": false
+       }
+      }
+     }
+    ],
+    "tool_choice": "auto",
+    "response_format": {
+     "type": "text"
+    },
+    "max_completion_tokens": 2000,
+    "store": false,
+    "parallel_tool_calls": false
+   },
+   "options": {
+    "timeout": 8000,
+    "stream": true
+   },
+   "baseParams": {
+    "auth": {
+     "apiKeyMasked": "**********xxxx"
+    },
+    "providerType": "azureOpenAI",
+    "model": "gpt-5.6-luna",
+    "modelType": "custom-model"
+   }
+  },
+  "response": {
+   "result": "You\u2019re welcome, Helen. I\u2019m glad I could help.",
+   "provider": "azureOpenAI",
+   "streamed": true,
+   "requestId": "chatcmpl-ERIFbI9ARQug4cSZNuuzOTrIBjgca",
+   "finishReason": "stop",
+   "firstChunk": {
+    "choices": [
+     {
+      "delta": {
+       "content": "",
+       "refusal": null,
+       "role": "assistant"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+     }
+    ],
+    "created": 1790173719,
+    "id": "chatcmpl-ERIFbI9ARQug4cSZNuuzOTrIBjgca",
+    "model": "gpt-5.6-luna-2026-07-09",
+    "obfuscation": "7MI",
+    "object": "chat.completion.chunk",
+    "service_tier": "default",
+    "system_fingerprint": null,
+    "usage": null
+   },
+   "lastChunk": {
+    "choices": [
+     {
+      "delta": {},
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null
+     }
+    ],
+    "created": 1790173719,
+    "id": "chatcmpl-ERIFbI9ARQug4cSZNuuzOTrIBjgca",
+    "model": "gpt-5.6-luna-2026-07-09",
+    "obfuscation": "XS3EuIb2Gxm3wUq",
+    "object": "chat.completion.chunk",
+    "service_tier": "default",
+    "system_fingerprint": null,
+    "usage": null
+   },
+   "toolCalls": [],
+   "tokenUsage": {
+    "inputTokens": 2075,
+    "outputTokens": 16,
+    "totalTokens": 2091,
+    "calculationMethod": "api"
+   }
+  }
+ }
+]
