@@ -40,7 +40,7 @@ import { computeHealth, WINDOW_DAYS, type HealthWindow } from '../src/health/hea
 import { checkCoverage } from '../src/validity/coverage.ts';
 import { checkValidity } from '../src/validity/validity.ts';
 import { importTraces } from '../src/traces/receiver.ts';
-import { cast, endpointBase, PERSONAS, restEndpoint, simulate } from '../src/demo/simulate.ts';
+import { cast, endpointBase, personasFor, restEndpoint, simulate } from '../src/demo/simulate.ts';
 
 // Load .env ourselves so every command works as a bare invocation from any
 // directory. Requiring `--env-file` is friction for a person and a trap for an
@@ -457,26 +457,31 @@ async function headless(command: string, argv: string[]): Promise<void> {
   }
 
   if (command === 'simulate') {
-    const agentId = String(flags.agent ?? '');
-    const agent = store.agent(agentId);
-    if (!agent) return fail('--agent <id> is required; see `agents`');
-    const endpoint = restEndpoint(agent);
     const base = endpointBase(config.cognigyApiBase, process.env.COGNIGY_ENDPOINT_BASE);
-    if (!endpoint || !base) return fail(`${agent.name} has no REST endpoint to talk to`);
+    if (!base) return fail('cannot work out the endpoint host; set COGNIGY_ENDPOINT_BASE');
+    const agents = flags.all ? store.agents().filter((agent) => agent.enabled && restEndpoint(agent)) : [store.agent(String(flags.agent ?? ''))];
+    if (!agents[0]) return fail(flags.all ? 'no watched agent has a REST endpoint' : '--agent <id> or --all is required; see `agents`');
     const only = flags.personas ? String(flags.personas).split(',').map((id) => id.trim()) : undefined;
-    const personas = cast(Number(flags.count ?? 6), only);
-    if (!personas.length) return fail(`no such persona; choose from ${PERSONAS.map((p) => p.id).join(', ')}`);
-    process.stderr.write(`Starting ${personas.length} conversations with ${agent.name}\n`);
-    const result = await simulate({
-      url: `${base}/${endpoint.urlToken}`,
-      personas,
-      onTurn: (event) => {
-        process.stderr.write(`  [${event.persona}] > ${event.said}\n`);
-        if (event.error) process.stderr.write(`  [${event.persona}] ! ${event.error}\n`);
-        for (const reply of event.replies) process.stderr.write(`  [${event.persona}] < ${reply.replace(/\s+/g, ' ').slice(0, 140)}\n`);
-      },
+    const runs = agents.map((agent) => {
+      const endpoint = restEndpoint(agent!);
+      if (!endpoint) return fail(`${agent!.name} has no REST endpoint to talk to`);
+      const set = personasFor(agent!);
+      const personas = cast(flags.count ? Number(flags.count) : set.length, only, set);
+      if (!personas.length) return fail(`no such persona for ${agent!.name}; choose from ${set.map((p) => p.id).join(', ')}`);
+      process.stderr.write(`Starting ${personas.length} conversations with ${agent!.name}\n`);
+      const tag = agents.length > 1 ? `${agent!.name.replace(/^Summit Ridge /, '')}/` : '';
+      return simulate({
+        url: `${base}/${endpoint.urlToken}`,
+        personas,
+        onTurn: (event) => {
+          const who = `[${tag}${event.persona}]`;
+          process.stderr.write(`  ${who} > ${event.said}\n`);
+          if (event.error) process.stderr.write(`  ${who} ! ${event.error}\n`);
+          for (const reply of event.replies) process.stderr.write(`  ${who} < ${reply.replace(/\s+/g, ' ').slice(0, 140)}\n`);
+        },
+      }).then((result) => ({ agentId: agent!.id, ...result }));
     });
-    return out(result);
+    return out(await Promise.all(runs));
   }
 
   if (command === 'daemon') {
@@ -605,8 +610,9 @@ const USAGE = `
 
   Demo:
     demo                              open the app with collection every minute
-    simulate --agent <id> [--count 6] [--personas rate-pusher,jailbreaker]
-                                      hold simulated conversations with the agent's REST endpoint
+    simulate --agent <id> | --all [--count <n>] [--personas <id,id>]
+                                      hold simulated conversations with each agent's REST endpoint,
+                                      using the customers written for that agent
 `;
 
 const [command, ...rest] = process.argv.slice(2);

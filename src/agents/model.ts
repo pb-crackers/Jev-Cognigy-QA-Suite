@@ -102,11 +102,13 @@ export function agentRubrics<R extends Rubric>(agent: Pick<Agent, 'rubrics'>, ru
 }
 
 /**
- * The switches a brand-new agent starts with: everything enabled at that moment
- * is on, explicitly. Only rubrics added afterwards fall back to `defaultOn`.
+ * The switches a brand-new agent starts with, written out explicitly: every
+ * enabled rubric except custom ones. A custom rubric is written for a particular
+ * agent — "never quote a rate" is right for one and a false alarm for another
+ * that reads a customer their own loan rate — so another agent opts in to it.
  */
-export function initialToggles(rubrics: Pick<Rubric, 'id' | 'enabled'>[]): Record<string, boolean> {
-  return Object.fromEntries(rubrics.filter((rubric) => rubric.enabled).map((rubric) => [rubric.id, true]));
+export function initialToggles(rubrics: Pick<Rubric, 'id' | 'enabled' | 'origin'>[]): Record<string, boolean> {
+  return Object.fromEntries(rubrics.filter((rubric) => rubric.enabled && rubric.origin !== 'custom').map((rubric) => [rubric.id, true]));
 }
 
 /** Which agent already owns an endpoint, if any — an endpoint belongs to one agent. */

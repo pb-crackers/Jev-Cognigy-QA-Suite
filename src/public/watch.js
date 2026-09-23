@@ -273,7 +273,7 @@ function renderAgent() {
     start.addEventListener('click', async () => {
       start.disabled = true;
       try {
-        const { started } = await post(`/api/agents/${agent.id}/simulate`, { count: 6 });
+        const { started } = await post(`/api/agents/${agent.id}/simulate`);
         notice('agent-notice', `Started ${count(started.length, 'conversation')}. Each is scored about a minute after its last message.`, 'ok');
         void pollLive();
       } catch (error) {
@@ -802,6 +802,27 @@ async function pollLive() {
   }
 }
 
+/** Demo mode only: one press starts every agent's customers at once. */
+function addFleetSimulate() {
+  if ($('btn-simulate-fleet')) return;
+  const button = el('button', 'btn ghost', 'Start simulated chats');
+  button.id = 'btn-simulate-fleet';
+  button.type = 'button';
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    try {
+      const { started } = await post('/api/simulate');
+      const total = started.reduce((sum, run) => sum + (run.started?.length ?? 0), 0);
+      notice('fleet-notice', `Started ${count(total, 'conversation')} across ${count(started.length, 'agent')}. Each is scored about a minute after its last message.`, 'ok');
+      void pollLive();
+    } catch (error) {
+      notice('fleet-notice', error.message);
+    }
+    button.disabled = false;
+  });
+  $('btn-add-agents').before(button);
+}
+
 // ---------- routing ----------
 
 window.addEventListener('view-shown', (event) => {
@@ -824,4 +845,7 @@ setInterval(() => {
   if (!$('view-alerts').hidden) void loadAlerts();
 }, 60_000);
 // In demo mode the board is meant to be watched, so it follows along closely.
-if (watch.live?.demo) setInterval(() => void pollLive(), 5_000);
+if (watch.live?.demo) {
+  addFleetSimulate();
+  setInterval(() => void pollLive(), 5_000);
+}

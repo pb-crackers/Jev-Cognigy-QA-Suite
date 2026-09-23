@@ -91,6 +91,8 @@ describe('agents over HTTP', () => {
     const { status, body } = await call('/api/agents/home-loans/simulate', { method: 'POST', body: '{}' });
     assert.equal(status, 403);
     assert.match(body.error, /demo mode/);
+    const fleet = await call('/api/simulate', { method: 'POST', body: '{}' });
+    assert.equal(fleet.status, 403);
     const watch = await call('/api/watch');
     assert.equal(watch.body.demo, false);
     assert.deepEqual(watch.body.feed, []);

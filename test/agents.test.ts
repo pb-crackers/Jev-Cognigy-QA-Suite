@@ -51,11 +51,11 @@ describe('which rubrics an agent is graded on', () => {
     assert.equal(rubricOn(agent({ rubrics: { r: true } }), rubric({ enabled: false })), false);
   });
 
-  it('starts a new agent with everything enabled at that moment switched on', () => {
+  it('starts a new agent with every enabled rubric on except custom ones, which belong to another agent', () => {
     const toggles = initialToggles([custom, legacy, rubric({ id: 'off', enabled: false })]);
-    assert.deepEqual(toggles, { discount: true, old: true });
+    assert.deepEqual(toggles, { old: true });
     const a = agent({ rubrics: toggles });
-    assert.deepEqual(agentRubrics(a, [custom, legacy, library]).map((r) => r.id), ['discount', 'old', 'jailbreak']);
+    assert.deepEqual(agentRubrics(a, [custom, legacy, library]).map((r) => r.id), ['old', 'jailbreak']);
   });
 
   it('keeps one agent\'s switches from touching another\'s', () => {

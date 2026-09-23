@@ -60,7 +60,7 @@ const cognigy = { async endpoints() { return [{ id: 'e', name: 'REST' }]; }, asy
 function setup() {
   const store = new Store(':memory:');
   store.saveRubric(discount);
-  const agent = createAgent({ name: 'Retail', projectId: 'p', endpoints: [{ id: 'e', name: 'REST' }] }, store, store.rubrics());
+  const agent = createAgent({ name: 'Retail', projectId: 'p', endpoints: [{ id: 'e', name: 'REST' }], rubrics: { discount: true } }, store, store.rubrics());
   return { store, agent };
 }
 

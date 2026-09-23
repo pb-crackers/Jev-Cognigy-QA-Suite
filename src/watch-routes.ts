@@ -21,7 +21,8 @@ import { checkValidity, type ValidityReport } from './validity/validity.ts';
 import { importTraces, MAX_TRACE_BYTES, receiveTrace } from './traces/receiver.ts';
 import { scoreSessions } from './store/score.ts';
 import { labelFor } from './cognigy/channels.ts';
-import { cast, endpointBase, restEndpoint, simulate, type TurnEvent } from './demo/simulate.ts';
+import { cast, endpointBase, personasFor, restEndpoint, simulate, type TurnEvent } from './demo/simulate.ts';
+import type { Agent } from './agents/model.ts';
 
 /**
  * Whether a request came from this machine rather than through a tunnel.
@@ -51,6 +52,29 @@ export interface WatchDeps {
 }
 
 const FEED = 80;
+
+/**
+ * Starts an agent's simulated customers in the background — the conversations
+ * take a minute or two, and the page watches them arrive through the feed.
+ * Returns who was started, or why nobody could be.
+ */
+function startSimulation(deps: WatchDeps, agent: Agent, count?: number, only?: string[]): { started: string[] } | { error: string } {
+  const endpoint = restEndpoint(agent);
+  const base = endpointBase(deps.config.cognigyApiBase, process.env.COGNIGY_ENDPOINT_BASE);
+  if (!endpoint || !base) return { error: `${agent.name} has no REST endpoint to talk to, so it cannot be simulated.` };
+  const set = personasFor(agent);
+  const personas = cast(count ?? set.length, only, set);
+  const feed = deps.feed ?? [];
+  void simulate({
+    url: `${base}/${endpoint.urlToken}`,
+    personas,
+    onTurn: (event) => {
+      feed.unshift({ ...event, agentId: agent.id, at: new Date().toISOString() });
+      feed.length = Math.min(feed.length, FEED);
+    },
+  });
+  return { started: personas.map((persona) => persona.id) };
+}
 
 type Send = (status: number, body: unknown) => void;
 
@@ -138,7 +162,7 @@ export async function handleWatchRoute(
     }
 
     if (!path.startsWith('/api/agents') && !path.startsWith('/api/alerts') &&
-        !path.startsWith('/api/validity') && !path.startsWith('/api/sessions/') && path !== '/api/watch') {
+        !path.startsWith('/api/validity') && !path.startsWith('/api/sessions/') && path !== '/api/watch' && path !== '/api/simulate') {
       return false;
     }
 
@@ -153,6 +177,14 @@ export async function handleWatchRoute(
         recent: (deps.scheduler?.recent ?? []).map((report) => ({ ...report, agentName: names.get(report.agentId) ?? report.agentId })),
         feed: deps.feed ?? [],
       }), true;
+    }
+
+    if (path === '/api/simulate' && method === 'POST') {
+      if (!deps.demo) return send(403, { error: 'Simulated conversations are only available in demo mode.' }), true;
+      const started = store.agents().filter((agent) => agent.enabled && restEndpoint(agent))
+        .map((agent) => ({ agentId: agent.id, ...startSimulation(deps, agent) }));
+      if (started.length === 0) return send(409, { error: 'No watched agent has a REST endpoint to talk to.' }), true;
+      return send(202, { started }), true;
     }
 
     // ---- agents ----
@@ -206,25 +238,9 @@ export async function handleWatchRoute(
       if (action === 'collect' && method === 'POST') return send(200, await collect(deps, id)), true;
       if (action === 'simulate' && method === 'POST') {
         if (!deps.demo) return send(403, { error: 'Simulated conversations are only available in demo mode.' }), true;
-        const endpoint = restEndpoint(agent);
-        const base = endpointBase(deps.config.cognigyApiBase, process.env.COGNIGY_ENDPOINT_BASE);
-        if (!endpoint || !base) {
-          return send(409, { error: 'This agent has no REST endpoint to talk to, so it cannot be simulated.' }), true;
-        }
         const body = await readBody<{ count?: number; personas?: string[] }>(request);
-        const personas = cast(body.count ?? 6, body.personas);
-        const feed = deps.feed ?? [];
-        // Runs in the background: the conversations take a minute or two, and
-        // the page watches them arrive through the feed.
-        void simulate({
-          url: `${base}/${endpoint.urlToken}`,
-          personas,
-          onTurn: (event) => {
-            feed.unshift({ ...event, agentId: agent.id, at: new Date().toISOString() });
-            feed.length = Math.min(feed.length, FEED);
-          },
-        });
-        return send(202, { started: personas.map((persona) => persona.id) }), true;
+        const result = startSimulation(deps, agent, body.count, body.personas);
+        return send('error' in result ? 409 : 202, result), true;
       }
       if (action === 'logging' && method === 'GET') {
         return send(200, {
