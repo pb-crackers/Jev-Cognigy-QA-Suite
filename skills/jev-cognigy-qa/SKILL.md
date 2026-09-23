@@ -123,6 +123,17 @@ back together. The tool derives how from the rubric's own shape, so leave `combi
 You may pass `combine` explicitly to override it, but there is rarely a reason to, and
 getting it wrong produces quietly incorrect scores on long transcripts.
 
+### Whose behaviour it judges — set `about` when it's the customer
+
+Most rubrics judge the **agent**. Some judge the **customer**: frustration, a jailbreak
+attempt, abuse, confusion. Set `"about": "customer"` on those; leave it out (or `"agent"`)
+otherwise. When a session is opened from a rubric, the view marks the message the answer
+rests on, and `about` decides whose messages are offered: frustration pointed at the agent's
+messages gives a muddled answer (0.34 in testing), pointed at the customer's a clear one (1.00).
+The shipped `frustration` and `jailbreak_attempt` are customer rubrics. A rubric about the
+customer is watching user behaviour, usually for alerting — give it `weight: 0` so it doesn't
+count toward the agent's health.
+
 ### Write the question about the conversation
 
 Ask about observable behaviour in the transcript, not about the agent's opinion of itself.
