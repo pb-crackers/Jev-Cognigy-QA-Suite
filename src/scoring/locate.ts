@@ -33,6 +33,13 @@ import { Ledger as LedgerClass } from '../metering.ts';
  */
 export const LOCATE_PROBABILITY = 0.5;
 export const LOCATE_MARGIN = 0.15;
+/**
+ * Questions per request, and requests at once. Jev takes about a second per
+ * question here, and a request gets 15 seconds: twenty questions in one request
+ * timed out, so a session's questions go five at a time, three requests at once.
+ */
+export const LOCATE_BATCH = 5;
+const LOCATE_PARALLEL = 3;
 /** Bumped when what a stored pointer means changes, so older ones are asked again. */
 const LOCATE_VERSION = 'p2';
 const NONE = 'none';
@@ -196,7 +203,7 @@ async function locateWith(
   let questionTokens = 0;
   for (const answer of askable) {
     const tokens = estimateTokens(JSON.stringify(whichQuestion(answer.rubric, answer.raw, messagesFor(answer.rubric))));
-    if (batch.length && stateTokens > stateBudget(questionTokens + tokens)) {
+    if (batch.length && (batch.length >= LOCATE_BATCH || stateTokens > stateBudget(questionTokens + tokens))) {
       batches.push(batch);
       batch = [];
       questionTokens = 0;
@@ -209,13 +216,16 @@ async function locateWith(
     return unanswered('the conversation is too long to point at one message');
   }
 
-  for (const group of batches) {
+  const askGroup = async (group: { rubric: Rubric; raw: string }[]) => {
     const questions: Questions = Object.fromEntries(group.map(({ rubric, raw }) => [questionId(rubric), whichQuestion(rubric, raw, messagesFor(rubric))]));
     const label = group.length === 1 ? `${sessionId} [locate ${group[0].rubric.id}]` : `${sessionId} [locate ${group.length}]`;
     const { answers: picks } = await ask({ stage: 'score', label, state, questions, ledger, sessionId });
     for (const { rubric, raw } of group) {
       out.set(rubric.id, { ...readPick((picks as Record<string, Pick>)[questionId(rubric)], messagesFor(rubric), raw), about: subjectOf(rubric).about });
     }
+  };
+  for (let index = 0; index < batches.length; index += LOCATE_PARALLEL) {
+    await Promise.all(batches.slice(index, index + LOCATE_PARALLEL).map(askGroup));
   }
   return out;
 }

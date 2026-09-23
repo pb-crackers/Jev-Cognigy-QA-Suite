@@ -87,8 +87,8 @@ export function backfillToolCalls(agentId: string, store: Store): number {
   return rebuilt;
 }
 
-/** Older sessions given pointers per collection: a few, so a catch-up never holds collection up for long. */
-export const POINTER_BACKFILL = 3;
+/** Older sessions given pointers per collection: enough to catch up in a few minutes, few enough not to hold collection up. */
+export const POINTER_BACKFILL = 10;
 
 /**
  * Finds which message each answer rests on for sessions scored before that was
@@ -101,6 +101,7 @@ export async function backfillPointers(agentId: string, store: Store, limit = PO
   const own = agentRubrics(agent, store.rubrics());
   const byId = new Map(own.map((rubric) => [rubric.id, rubric]));
   let done = 0;
+  const failures: string[] = [];
   for (const session of store.agentSessions(agentId)) {
     if (done >= limit) break;
     if (session.error || session.unscoreable || session.transcript === '[]') continue;
@@ -112,13 +113,19 @@ export async function backfillPointers(agentId: string, store: Store, limit = PO
     if (missing.length === 0) continue;
     const traces = store.tracesFor(agentId, session.sessionId);
     const trace = traces.length ? reconstruct(traces) : undefined;
-    const found = await locateAll(missing, withToolLines(turns, trace), fixedState(trace), new Ledger(), session.sessionId);
-    for (const { rubric, raw } of missing) {
-      const located = found.get(rubric.id);
-      if (located) store.saveLocate(agentId, session.sessionId, rubric.id, { ...located, key: locateKey(rubric, raw, turns) });
+    try {
+      const found = await locateAll(missing, withToolLines(turns, trace), fixedState(trace), new Ledger(), session.sessionId);
+      for (const { rubric, raw } of missing) {
+        const located = found.get(rubric.id);
+        if (located) store.saveLocate(agentId, session.sessionId, rubric.id, { ...located, key: locateKey(rubric, raw, turns) });
+      }
+    } catch (error) {
+      // One session Jev couldn't answer for must not stall every session behind it; it's tried again next time.
+      failures.push(`${session.sessionId}: ${error instanceof Error ? error.message : String(error)}`);
     }
     done++;
   }
+  if (failures.length) throw new Error(`${failures.length} session(s) failed: ${failures[0]}`);
   return done;
 }
 

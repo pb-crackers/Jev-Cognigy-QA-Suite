@@ -76,6 +76,15 @@ describe('which message a verdict rests on', () => {
     assert.equal((judged.state as { instructions: string }).instructions, 'Never quote a rate.');
   });
 
+  it('asks at most five questions per request, so none runs out of time', async () => {
+    const many = Array.from({ length: 12 }, (_, index) => ({ rubric: { ...rate, id: `r${index}` }, raw: '0.9' }));
+    const before = api.requests.length;
+    const found = await locateAll(many, turns, {}, new Ledger(), 's1');
+    const sent = api.requests.slice(before).map((request) => Object.keys(request.questions).length);
+    assert.deepEqual(sent.sort(), [2, 5, 5]);
+    assert.equal(found.size, 12);
+  });
+
   it('says so when no single message decides it', async () => {
     api.setOverrides({ which_quoted_rate: { type: 'choice', choice: 'none', confidence: 0.8 } });
     const found = await locate(rate, '0.2', turns, {}, new Ledger(), 's1');

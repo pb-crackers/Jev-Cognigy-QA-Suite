@@ -268,6 +268,24 @@ describe('older sessions without pointers', () => {
     assert.ok(store.locatesForRubric(agent.id, 'discount').size === 2);
     store.close();
   });
+
+  it('carries on past a session Jev fails on, and reports it', async () => {
+    const { store, agent } = setup();
+    store.saveRun({ id: 'old', startedAt: minutesAgo(90), projectId: 'p', projectName: 'P', endpointLabel: 'x', fromTs: 'a', toTs: 'b', sessions: 2, costUsd: 0, ms: 0, agentId: agent.id });
+    const transcript = (text: string) => JSON.stringify([{ role: 'user', text: 'Any discount?', at: 't' }, { role: 'agent', text, at: 't' }]);
+    // Newest first: the failing one is tried first and must not stop the other.
+    store.saveSession({ runId: 'old', sessionId: 'fine', startedAt: minutesAgo(85), endpointLabel: 'REST', channel: 'rest', channelLabel: 'REST API', flowName: 'F',
+      turns: 2, chunks: 1, rating: null, ratingComment: null, unscoreable: null, costUsd: 0, ms: 0, transcript: transcript('No discounts, sorry.') },
+    [{ runId: 'old', sessionId: 'fine', rubricId: 'discount', raw: '0.1', confidence: null, chunks: 1, decidedBy: null }]);
+    store.saveSession({ runId: 'old', sessionId: 'stuck', startedAt: minutesAgo(80), endpointLabel: 'REST', channel: 'rest', channelLabel: 'REST API', flowName: 'F',
+      turns: 2, chunks: 1, rating: null, ratingComment: null, unscoreable: null, costUsd: 0, ms: 0, transcript: transcript('Sure, 20% off.') },
+    [{ runId: 'old', sessionId: 'stuck', rubricId: 'discount', raw: '0.9', confidence: null, chunks: 1, decidedBy: null }]);
+    api.setOverrides({ r_discount: { type: 'noul', noul: 0.96 }, which_discount: { fail: true } });
+    await assert.rejects(backfillPointers(agent.id, store), /2 session\(s\) failed/);
+    api.setOverrides({ r_discount: { type: 'noul', noul: 0.96 } });
+    assert.equal(await backfillPointers(agent.id, store), 2, 'both done once Jev answers again');
+    store.close();
+  });
 });
 
 describe('scheduling', () => {
