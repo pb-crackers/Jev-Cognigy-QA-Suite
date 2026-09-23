@@ -42,32 +42,32 @@ after(async () => {
 
 describe('which message a verdict rests on', () => {
   it('asks one choice between the agent messages and "none", stating the verdict', async () => {
-    api.setOverrides({ which_message: { type: 'choice', choice: 'message_2', confidence: 0.94 } });
+    api.setOverrides({ which_quoted_rate: { type: 'choice', choice: 'message_2', confidence: 0.94 } });
     const found = await locate(rate, '0.86', turns, {}, new Ledger(), 's1');
     const request = api.requests.at(-1)!;
-    assert.deepEqual(Object.keys(request.questions), ['which_message']);
-    assert.deepEqual(Object.keys(request.questions.which_message.criteria as object), ['message_1', 'message_2', 'none']);
+    assert.deepEqual(Object.keys(request.questions), ['which_quoted_rate']);
+    assert.deepEqual(Object.keys(request.questions.which_quoted_rate.criteria as object), ['message_1', 'message_2', 'none']);
     assert.match(JSON.stringify(request.questions), /was yes\. Which agent message/);
     assert.match(String((request.state as { conversation: string }).conversation), /Agent message 2: A 30-year fixed/);
     assert.deepEqual(found, { raw: '0.86', turnIndex: 4, message: 2, confidence: 0.94 });
   });
 
   it('says so when no single message decides it', async () => {
-    api.setOverrides({ which_message: { type: 'choice', choice: 'none', confidence: 0.8 } });
+    api.setOverrides({ which_quoted_rate: { type: 'choice', choice: 'none', confidence: 0.8 } });
     const found = await locate(rate, '0.2', turns, {}, new Ledger(), 's1');
     assert.equal(found.turnIndex, null);
     assert.equal(found.reason, 'no single message decides this one');
   });
 
   it('marks nothing when Jev reports no confidence at all', async () => {
-    api.setOverrides({ which_message: { type: 'choice', choice: 'message_2' } });
+    api.setOverrides({ which_quoted_rate: { type: 'choice', choice: 'message_2' } });
     const found = await locate(rate, '0.86', turns, {}, new Ledger(), 's1');
     assert.equal(found.turnIndex, null);
     assert.equal(found.reason, 'Jev isn’t sure which message');
   });
 
   it('marks nothing when Jev is not sure which message', async () => {
-    api.setOverrides({ which_message: { type: 'choice', choice: 'message_1', confidence: 0.3 } });
+    api.setOverrides({ which_quoted_rate: { type: 'choice', choice: 'message_1', confidence: 0.3 } });
     const found = await locate(rate, '0.86', turns, {}, new Ledger(), 's1');
     assert.equal(found.turnIndex, null);
     assert.equal(found.message, 1);
@@ -90,7 +90,7 @@ describe('which message a verdict rests on', () => {
   });
 
   it('asks Jev once per answer: stored after the first, shared by opens at the same moment', async () => {
-    api.setOverrides({ which_message: { type: 'choice', choice: 'message_2', confidence: 0.94 } });
+    api.setOverrides({ which_quoted_rate: { type: 'choice', choice: 'message_2', confidence: 0.94 } });
     const store = new Store(':memory:');
     const agent = createAgent({ name: 'Avery', projectId: 'p', endpoints: [{ id: 'e', name: 'E' }] }, store, []);
     store.saveRun({ id: 'r', startedAt: 't', projectId: 'p', projectName: 'P', endpointLabel: 'E', fromTs: 'a', toTs: 'b', sessions: 1, costUsd: 0, ms: 0, agentId: agent.id });
