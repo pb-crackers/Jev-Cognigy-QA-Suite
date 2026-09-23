@@ -11,6 +11,8 @@ import { $, el, json, usd } from './dom.js';
 const watch = { window: '24h', agents: [], rubrics: [], projects: [], current: null };
 
 const pct = (value) => `${Math.round(value * 100)}%`;
+/** Cognigy's UUIDs read fine at eight characters; an id someone chose is kept whole. */
+const shortId = (id) => (/^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(id) ? id.slice(0, 8) : id);
 /** "1 session", "3 sessions". */
 const count = (n, word, plural = `${word}s`) => `${n} ${n === 1 ? word : plural}`;
 const post = (url, body) => json(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });
@@ -372,7 +374,7 @@ function failingList(detail) {
     const row = el('button', 'failing-row');
     row.type = 'button';
     row.append(
-      el('span', 'sid', item.sessionId.slice(0, 8)),
+      el('span', 'sid', shortId(item.sessionId)),
       el('span', 'when', new Date(item.startedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })),
       el('span', `score ${band(item.composite).cls}`, pct(item.composite)),
       el('span', 'hint', item.worst.slice(0, 3).map((id) => names.get(id) ?? id).join(', ') || '—'),
@@ -619,7 +621,9 @@ function settingsPanel(agent) {
         enabled: enabled.checked,
         intervalMinutes: Number(interval.value),
         includePanel: panel.checked,
-        alerts: { macos: macos.checked, webhookUrl: webhook.value.trim() || undefined },
+        // An empty string, not undefined: JSON drops undefined, and the server's
+        // merge would then keep the old webhook, making it impossible to remove.
+        alerts: { macos: macos.checked, webhookUrl: webhook.value.trim() },
         rubrics: Object.fromEntries([...switches].map(([id, box]) => [id, box.checked])),
       });
       await openAgent(agent.id);
@@ -664,11 +668,14 @@ function alertTable(alerts, withAgent) {
     tr.append(
       el('td', null, alert.rubricName ?? names.get(alert.rubricId) ?? alert.rubricId),
       el('td', 'n', String(alert.count)),
-      el('td', 'sid', alert.sessions.slice(0, 3).map((id) => id.slice(0, 8)).join(', ') + (alert.sessions.length > 3 ? ` +${alert.sessions.length - 3}` : '')),
+      el('td', 'sid', alert.sessions.slice(0, 3).map(shortId).join(', ') + (alert.sessions.length > 3 ? ` +${alert.sessions.length - 3}` : '')),
     );
     const delivered = Object.entries(alert.delivered)
       .filter(([, outcome]) => outcome !== 'off')
-      .map(([channel, outcome]) => (outcome === 'ok' ? channel : `${channel} failed`));
+      .map(([channel, outcome]) => {
+        const name = channel === 'macos' ? 'Mac notification' : channel;
+        return outcome === 'ok' ? name : `${name} failed`;
+      });
     const cell = el('td', delivered.some((text) => text.includes('failed')) ? 'flagc' : 'hint', delivered.join(', ') || 'in the app only');
     const errors = Object.values(alert.delivered).filter((outcome) => outcome.startsWith('error'));
     if (errors.length) cell.title = errors.join('\n');

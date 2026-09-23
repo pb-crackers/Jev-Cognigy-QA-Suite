@@ -44,6 +44,15 @@ export const systemNotifier: Notifier = {
   },
 };
 
+/**
+ * A session id short enough to read. Cognigy's UUIDs are unambiguous in eight
+ * characters; an id someone chose, like one sent to a REST endpoint, is kept
+ * whole — cut to eight it reads as a typo.
+ */
+export function shortId(id: string): string {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(id) ? id.slice(0, 8) : id;
+}
+
 function when(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
@@ -59,7 +68,7 @@ export function alertMessage(alert: AlertRow, rubric: Rubric, agent: Agent, late
   const timing = late
     ? `happened ${when(alert.happenedAt)}, detected ${when(alert.detectedAt)}`
     : `at ${when(alert.happenedAt)}`;
-  const session = alert.sessions.length === 1 ? `session ${alert.sessions[0].slice(0, 8)}` : `${alert.sessions.length} sessions`;
+  const session = alert.sessions.length === 1 ? `session ${shortId(alert.sessions[0])}` : `${alert.sessions.length} sessions`;
   return {
     title: `Agent Watch · ${agent.name}`,
     subtitle: what,

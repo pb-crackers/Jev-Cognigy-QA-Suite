@@ -5,7 +5,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { evaluateAlerts, isHit, windowKey } from '../src/alerts/engine.ts';
-import { alertMessage, appleScriptString, deliverAlert, type Notifier } from '../src/alerts/deliver.ts';
+import { alertMessage, appleScriptString, deliverAlert, shortId, type Notifier } from '../src/alerts/deliver.ts';
 import { createAgent } from '../src/agents/service.ts';
 import { Store } from '../src/store/db.ts';
 import type { Rubric } from '../src/rubrics/model.ts';
@@ -176,6 +176,11 @@ describe('delivery', () => {
     assert.match(alertMessage(alert, discount, agent, true).message, /happened .* detected /);
     assert.doesNotMatch(alertMessage(alert, discount, agent, false).message, /detected/);
     store.close();
+  });
+
+  it('shortens a Cognigy UUID but keeps an id someone chose whole', () => {
+    assert.equal(shortId('802aef48-1197-4dcb-9f01-0f3091663da1'), '802aef48');
+    assert.equal(shortId('agentwatch-live-1790165127'), 'agentwatch-live-1790165127');
   });
 
   it('escapes quotes and backslashes for AppleScript', () => {

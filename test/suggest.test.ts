@@ -121,6 +121,15 @@ describe('agent rules', () => {
     store.close();
   });
 
+  it('removes an alert webhook when it is cleared', () => {
+    const store = new Store(':memory:');
+    createAgent({ name: 'S', projectId: 'p', endpoints: [{ id: 'e', name: 'E' }],
+      alerts: { macos: true, webhookUrl: 'https://hooks.example.com/x' } }, store, []);
+    const next = updateAgent('s', { alerts: { macos: true, webhookUrl: '' } }, store);
+    assert.equal(next.alerts.webhookUrl || undefined, undefined, 'nothing left to post to');
+    store.close();
+  });
+
   it('follows a renamed endpoint and says so', async () => {
     const store = new Store(':memory:');
     const agent = createAgent({ name: 'S', projectId: 'p', endpoints: [{ id: 'e-rest', name: 'Old name' }] }, store, []);
