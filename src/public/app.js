@@ -1352,11 +1352,32 @@ function notScored(session) {
   return box;
 }
 
+/** The full session id, with a button to copy it — to share it, or find it in Cognigy. */
+function sessionIdCopy(sessionId) {
+  const wrap = el('span', 'sid-copy');
+  wrap.append(el('span', 'sid', sessionId));
+  const button = el('button', 'copy', 'Copy');
+  button.type = 'button';
+  button.setAttribute('aria-label', `Copy session id ${sessionId}`);
+  button.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(sessionId);
+      button.textContent = 'Copied';
+    } catch {
+      button.textContent = 'Select and copy';
+      getSelection()?.selectAllChildren(wrap.firstChild);
+    }
+    setTimeout(() => { button.textContent = 'Copy'; }, 1500);
+  });
+  wrap.append(button);
+  return wrap;
+}
+
 function openSession(session) {
   const calls = session.toolCalls?.length ?? 0;
   const meta = $('session-meta');
   meta.replaceChildren(
-    document.createTextNode(`${session.sessionId.slice(0, 8)} `),
+    sessionIdCopy(session.sessionId),
     channelChip(session),
     document.createTextNode(
       ` ${session.turns} turns, ${session.endpointLabel}` +
