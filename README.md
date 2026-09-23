@@ -96,6 +96,15 @@ What it adds:
   exactly on removal — and then grades conversations with the prompt as it was sent and
   every tool call where it happened. Cognigy has to be able to reach the webhook, so this
   needs a tunnel and `AGENT_WATCH_PUBLIC_URL`.
+- **Every tool call, checked.** Each logged call becomes a record: the tool's definition and
+  schema, the arguments, the result, what the agent said before calling and the reply after,
+  tokens and timing. Exact checks need no model — arguments against the schema, the tool
+  refusing or erroring, a missing result, a repeated call — and the session view shows each
+  call in the transcript where it happened.
+- **Data you can trust, or told why not.** LLM logs are read through one normaliser that
+  reports any field arriving in an unexpected shape instead of failing on it, and stored once
+  however often Cognigy retries. A session that can't be scored is recorded with the reason
+  and retried, without holding up the rest. Each agent shows what its figures rest on.
 - **Rubric validity.** Whether each rubric can be answered from what the grader is given,
   asks one thing, would get the same answer from two reviewers, and catches what its author
   said it should — plus how often its verdict flips on an identical re-ask.
