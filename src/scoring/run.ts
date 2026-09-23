@@ -65,6 +65,11 @@ export interface RunOutcome {
   deferred: SessionSummary[];
   /** Sessions actually scored, with the conversation time of their last record. */
   scored: { sessionId: string; startedAt: string; lastAt: string }[];
+  /**
+   * Sessions discovery returned, before any were deferred or skipped. Equal to
+   * the limit means there may be more waiting.
+   */
+  found: SessionSummary[];
 }
 
 export interface RunProgress {
@@ -192,6 +197,7 @@ export async function executeRun(
     limit: request.limit,
   });
 
+  const found = candidates;
   const deferred = request.settledBefore
     ? candidates.filter((session) => session.lastAt > request.settledBefore!)
     : [];
@@ -307,5 +313,5 @@ export async function executeRun(
   store.saveRun(run);
 
   onProgress?.({ done, total: candidates.length, costUsd: totals.costUsd, chunksSplit: split });
-  return { run, ledger, deferred, scored: scoredSessions };
+  return { run, ledger, deferred, scored: scoredSessions, found };
 }
