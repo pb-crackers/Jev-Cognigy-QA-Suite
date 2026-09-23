@@ -7,7 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { OdataClient, SessionSummary } from '../cognigy/odata.ts';
-import { modalityOf } from '../cognigy/channels.ts';
+import { labelFor, modalityOf } from '../cognigy/channels.ts';
 import { assemble, render, type Transcript } from '../cognigy/transcript.ts';
 import { ask } from '../jev.ts';
 import { Ledger } from '../metering.ts';
@@ -168,6 +168,44 @@ async function scoreTranscript(
   }
 
   return { results, chunks: chunks.length, turns: turnsWithTools };
+}
+
+/**
+ * Asks stored sessions' rubrics again, with the state they were scored with.
+ *
+ * Used to measure stability: Jev can answer byte-identical requests
+ * differently, and how often a rubric's verdict flips on a re-ask is a direct
+ * measure of how far its answers can be trusted. Only single-chunk sessions are
+ * re-asked, so the comparison is like for like.
+ */
+export async function reaskSession(
+  session: SessionRow,
+  rubrics: Rubric[],
+  ledger: Ledger,
+  fixed: ReturnType<typeof fixedState> = {},
+): Promise<Map<string, ChunkAnswer>> {
+  const turns = JSON.parse(session.transcript) as Transcript['turns'];
+  const modality = modalityOf(labelFor(session.channel).kind);
+  const questions = compile(rubrics, modality);
+  const state = {
+    conversation: render({ turns } as Transcript),
+    ...(session.flowName ? { flow: session.flowName } : {}),
+    ...fixed,
+  };
+  const { answers } = await ask({
+    stage: 'score',
+    label: `${session.sessionId} [re-ask]`,
+    state,
+    questions,
+    ledger,
+    sessionId: session.sessionId,
+  });
+  const out = new Map<string, ChunkAnswer>();
+  for (const rubric of rubrics) {
+    const answer = readAnswer(rubric, answers as Record<string, unknown>, turns.length);
+    if (answer) out.set(rubric.id, answer);
+  }
+  return out;
 }
 
 export async function executeRun(
