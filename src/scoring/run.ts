@@ -28,6 +28,40 @@ export interface RunRequest {
   channels?: readonly string[];
   limit: number;
   skipScored: boolean;
+
+  /** Set when the run collects for an agent. */
+  agentId?: string;
+  /** What the run is called in the run list; derived from the endpoint when absent. */
+  label?: string;
+  /** An agent's endpoints by name; overrides `endpointName`. */
+  endpointNames?: readonly string[];
+  includePanel?: boolean;
+  /**
+   * Restricts the run to these rubrics — an agent's set. Omitted means every
+   * enabled rubric, as an ad-hoc run has always done.
+   */
+  rubricIds?: readonly string[];
+  /**
+   * `session` skips a session scored before at all — the ad-hoc behaviour.
+   * `rubric` skips per session × rubric and asks only what is missing, and
+   * re-scores a session that has grown since it was last seen.
+   */
+  skipMode?: 'session' | 'rubric';
+  oldestFirst?: boolean;
+  /**
+   * A session whose newest record is later than this is still in progress and
+   * is deferred rather than scored half-finished.
+   */
+  settledBefore?: string;
+}
+
+export interface RunOutcome {
+  run: RunRow;
+  ledger: Ledger;
+  /** Sessions held back because they were still in progress. */
+  deferred: SessionSummary[];
+  /** Sessions actually scored, with the conversation time of their last record. */
+  scored: { sessionId: string; startedAt: string; lastAt: string }[];
 }
 
 export interface RunProgress {
@@ -124,9 +158,10 @@ export async function executeRun(
   request: RunRequest,
   deps: { odata: OdataClient; store: Store; rubrics: Rubric[] },
   onProgress?: (progress: RunProgress) => void,
-): Promise<{ run: RunRow; ledger: Ledger }> {
+): Promise<RunOutcome> {
   const { odata, store, rubrics } = deps;
-  const enabled = rubrics.filter((rubric) => rubric.enabled);
+  const wanted = request.rubricIds ? new Set(request.rubricIds) : undefined;
+  const enabled = rubrics.filter((rubric) => rubric.enabled && (!wanted || wanted.has(rubric.id)));
   if (enabled.length === 0) throw new Error('No rubrics are enabled');
 
   const runId = randomUUID();
@@ -139,17 +174,43 @@ export async function executeRun(
     from: request.from,
     to: request.to,
     endpointName: request.endpointName,
+    endpointNames: request.endpointNames,
+    includePanel: request.includePanel,
+    oldestFirst: request.oldestFirst,
     channels: request.channels,
     limit: request.limit,
   });
 
-  if (request.skipScored) {
+  const deferred = request.settledBefore
+    ? candidates.filter((session) => session.lastAt > request.settledBefore!)
+    : [];
+  if (deferred.length) {
+    const held = new Set(deferred.map((session) => session.sessionId));
+    candidates = candidates.filter((session) => !held.has(session.sessionId));
+  }
+
+  // Which rubrics each session still needs. Ad-hoc runs keep the per-session
+  // skip they have always had; agent runs ask only what is missing.
+  const needs = new Map<string, Rubric[]>();
+  if (request.skipScored && request.skipMode === 'rubric') {
+    const scored = store.scoredRubrics(candidates.map((session) => session.sessionId));
+    for (const session of candidates) {
+      const seen = scored.get(session.sessionId);
+      const grew = seen?.lastAt && session.lastAt > seen.lastAt;
+      needs.set(
+        session.sessionId,
+        !seen || grew ? enabled : enabled.filter((rubric) => !seen.rubrics.has(rubric.id)),
+      );
+    }
+    candidates = candidates.filter((session) => (needs.get(session.sessionId)?.length ?? 0) > 0);
+  } else if (request.skipScored) {
     const seen = store.alreadyScored(request.projectId);
     candidates = candidates.filter((session) => !seen.has(session.sessionId));
   }
 
   let done = 0;
   let split = 0;
+  const scoredSessions: RunOutcome['scored'] = [];
 
   for (const summary of candidates) {
     onProgress?.({
@@ -169,7 +230,7 @@ export async function executeRun(
     let chunks = 0;
 
     if (!transcript.unscoreable) {
-      const scored = await scoreTranscript(transcript, enabled, ledger);
+      const scored = await scoreTranscript(transcript, needs.get(summary.sessionId) ?? enabled, ledger);
       results = scored.results;
       chunks = scored.chunks;
       if (chunks > 1) split++;
@@ -192,12 +253,14 @@ export async function executeRun(
       transcript: JSON.stringify(transcript.turns),
       costUsd: spend.costUsd,
       ms: Date.now() - sessionMs,
+      lastAt: summary.lastAt,
     };
 
     store.saveSession(
       row,
       results.map((result) => ({ ...result, runId, sessionId: summary.sessionId })),
     );
+    scoredSessions.push({ sessionId: summary.sessionId, startedAt: row.startedAt, lastAt: summary.lastAt });
     done++;
   }
 
@@ -208,17 +271,17 @@ export async function executeRun(
     projectId: request.projectId,
     projectName: request.projectName,
     endpointLabel:
-      request.endpointName === null
-        ? 'Interaction Panel'
-        : (request.endpointName ?? 'Any endpoint'),
+      request.label ??
+      (request.endpointName === null ? 'Interaction Panel' : (request.endpointName ?? 'Any endpoint')),
     fromTs: request.from,
     toTs: request.to,
     sessions: done,
     costUsd: totals.costUsd,
     ms: Date.now() - startedMs,
+    agentId: request.agentId ?? null,
   };
   store.saveRun(run);
 
   onProgress?.({ done, total: candidates.length, costUsd: totals.costUsd, chunksSplit: split });
-  return { run, ledger };
+  return { run, ledger, deferred, scored: scoredSessions };
 }
