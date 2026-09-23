@@ -151,6 +151,27 @@ export async function locateAll(
   ledger: Ledger,
   sessionId: string,
 ): Promise<Map<string, Located>> {
+  // Only rubrics judged against the agent's instructions need them to find the
+  // message; for the rest they're thousands of tokens that slow the answer
+  // (6–20 s with them, 2–3 s without).
+  const needsInstructions = (rubric: Rubric) => Boolean(rubric.requiresTrace || rubric.general);
+  const withFixed = answers.filter(({ rubric }) => needsInstructions(rubric));
+  const plain = answers.filter(({ rubric }) => !needsInstructions(rubric));
+  const out = new Map<string, Located>();
+  for (const [group, state] of [[plain, {}], [withFixed, fixed]] as const) {
+    if (group.length === 0) continue;
+    for (const [id, located] of await locateWith(group, turns, state, ledger, sessionId)) out.set(id, located);
+  }
+  return out;
+}
+
+async function locateWith(
+  answers: { rubric: Rubric; raw: string }[],
+  turns: Turn[],
+  fixed: FixedState,
+  ledger: Ledger,
+  sessionId: string,
+): Promise<Map<string, Located>> {
   const out = new Map<string, Located>();
   const conversation = numbered(turns);
   const messagesFor = (rubric: Rubric) => (subjectOf(rubric).about === 'customer' ? conversation.customer : conversation.agent);
