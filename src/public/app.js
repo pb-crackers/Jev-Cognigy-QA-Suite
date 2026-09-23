@@ -824,6 +824,15 @@ function channelCell(session) {
   return cell;
 }
 
+/**
+ * How likely Jev's yes/no answer is — the probability of the answer shown, so a
+ * "no" reads "probability 0.62", never the 0.38 chance of yes.
+ */
+function answerProbability(result) {
+  const yes = Number(result.raw);
+  return yes >= 0.5 ? yes : 1 - yes;
+}
+
 function rawLabel(rubric, result) {
   if (rubric.type === 'boolean') return Number(result.raw) >= 0.5 ? 'yes' : 'no';
   if (rubric.type === 'score') return Number(result.raw).toFixed(1);
@@ -1225,6 +1234,80 @@ function renderTranscript(session) {
   });
 }
 
+// ---------- the rubric a session was opened from ----------
+//
+// Pinned above the scores, with each number on its own labelled line: the
+// probability (or confidence) of Jev's answer, and its confidence about which
+// agent message the answer rests on. That message is found on request — one
+// Jev question, stored afterwards — then marked in the transcript.
+
+function factRow(list, term, value, label) {
+  list.append(el('dt', null, term), el('dd', null, value));
+  const note = el('dd', 'lbl');
+  if (label) note.append(label);
+  list.append(note);
+  return note;
+}
+
+/** The Nth agent message in the transcript as shown, counting from 1. */
+function agentRow(message) {
+  return [...document.querySelectorAll('#session-transcript .turn.agent')][message - 1];
+}
+
+function markMessage(message, rubric, confidence, passed) {
+  const row = agentRow(message);
+  if (!row) return undefined;
+  row.classList.add('pointed');
+  if (passed) row.classList.add('pass');
+  const chip = el('span', 'score-chip');
+  chip.append(el('span', 'name', rubric.name), el('span', 'value', `confidence ${confidence.toFixed(2)}`));
+  const text = row.lastElementChild;
+  text.prepend(chip, el('br'));
+  row.scrollIntoView({ block: 'center' });
+  return row;
+}
+
+function pinnedRubric(session, rubric) {
+  const result = session.results[rubric.id];
+  const passed = result.normalized === undefined ? null : result.normalized >= 0.5;
+  const box = el('div', `pinned${passed === false ? '' : ' neutral'}`);
+  const head = el('div', 'rh');
+  head.append(el('span', 'rn', rubric.name), el('span', `rv${passed === false ? ' fail' : passed ? ' pass' : ''}`,
+    passed === false ? 'Failed' : passed ? 'Passed' : rawLabel(rubric, result)));
+  const facts = el('dl', 'facts');
+  factRow(facts, 'Answer', rawLabel(rubric, result), rubric.type === 'boolean'
+    ? `probability ${answerProbability(result).toFixed(2)}`
+    : result.confidence === null ? 'no confidence reported' : `confidence ${result.confidence.toFixed(2)}`);
+  const where = factRow(facts, 'Message', '…', 'finding the message…');
+  box.append(head, facts);
+
+  const whereValue = where.previousElementSibling;
+  json(`/api/sessions/${encodeURIComponent(session.sessionId)}/locate`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ agentId: session.agentId, rubricId: rubric.id }),
+  }).then((located) => {
+    where.replaceChildren();
+    if (located.message === null || located.turnIndex === null) {
+      whereValue.textContent = located.message === null ? 'none' : `#${located.message}?`;
+      where.append(located.reason ?? 'no single message decides this one');
+      return;
+    }
+    whereValue.textContent = `#${located.message}`;
+    where.append(`confidence ${located.confidence.toFixed(2)} `);
+    const row = markMessage(located.message, rubric, located.confidence, passed === true);
+    if (row) {
+      const jump = el('button', 'jump', 'Go to it');
+      jump.type = 'button';
+      jump.addEventListener('click', () => row.scrollIntoView({ block: 'center', behavior: 'smooth' }));
+      where.append(jump);
+    }
+  }).catch((error) => {
+    whereValue.textContent = '—';
+    where.replaceChildren(`couldn’t find it: ${error.message}`);
+  });
+  return box;
+}
+
 /** In place of scores: why there are none, and what happens next. */
 function notScored(session) {
   const box = el('div', 'notscored');
@@ -1291,7 +1374,11 @@ function openSession(session) {
 
   // A session from an agent lists that agent's rubrics; an ad-hoc run's, every rubric.
   const listed = session.rubricIds ? state.rubrics.filter((rubric) => session.rubricIds.includes(rubric.id) || session.results[rubric.id]) : state.rubrics;
+  const focused = session.focusRubric ? state.rubrics.find((rubric) => rubric.id === session.focusRubric) : undefined;
+  if (focused && session.results[focused.id]) panel.append(pinnedRubric(session, focused));
+
   for (const rubric of listed) {
+    if (rubric === focused && session.results[rubric.id]) continue;
     const result = session.results[rubric.id];
 
     // Two different silences, and conflating them hides a real problem. A rubric
@@ -1329,7 +1416,7 @@ function openSession(session) {
     // ones, where the probability itself is the certainty. Saying which is which
     // is clearer than a line that silently changes shape between rubrics.
     if (rubric.type === 'boolean') {
-      meta.append(el('span', 'certainty', `probability ${Number(result.raw).toFixed(2)}`));
+      meta.append(el('span', 'certainty', `probability ${answerProbability(result).toFixed(2)}`));
       const distance = Math.abs(Number(result.raw) - 0.5);
       if (distance < 0.15) {
         const flag = el('span', 'flag', 'close to 50/50');

@@ -930,3 +930,26 @@ details.folded > summary:focus-visible { outline: 2px solid var(--t-noul); outli
   .rubric-head { grid-template-columns: 1fr; }
   .rubric-head .rate { text-align: left; }
 }
+/* ---- The rubric a session was opened from, and the message it rests on ---- */
+.pinned { border: 1px solid var(--critical); border-radius: 4px; padding: 12px 14px; margin-bottom: 14px; display: grid; gap: 6px; }
+.pinned.neutral { border-color: var(--hairline); }
+.pinned .rh { display: flex; justify-content: space-between; gap: 12px; }
+.pinned .rn { font: 12.5px/1.4 var(--mono); }
+.pinned .rv { font: 600 13px var(--mono); }
+.pinned .rv.fail { color: var(--critical-text); }
+.pinned .rv.pass { color: var(--success-text); }
+.pinned .facts { display: grid; grid-template-columns: max-content max-content 1fr; gap: 4px 12px; font-size: 12.5px; align-items: baseline; margin: 2px 0 0; }
+.pinned .facts dt { color: var(--ink-muted); }
+.pinned .facts dd { margin: 0; color: var(--ink-1); font-family: var(--mono); }
+.pinned .facts dd.lbl { color: var(--ink-2); font-family: var(--sans); }
+.pinned .jump { font: 12.5px var(--sans); color: var(--t-noul); background: none; border: 0; padding: 0; cursor: pointer; margin-left: 4px; }
+.turn.pointed { margin: 6px 0; padding: 8px 10px 8px 8px; border-radius: 0 4px 4px 0;
+  background: color-mix(in srgb, var(--critical) 9%, transparent); box-shadow: inset 3px 0 0 var(--critical); }
+.turn.pointed.pass { background: color-mix(in srgb, var(--good) 8%, transparent); box-shadow: inset 3px 0 0 var(--good); }
+/* A labelled score: name and value as two parts of one chip. */
+.score-chip { display: inline-flex; border: 1px solid var(--critical); border-radius: 3px; font: 11px/1 var(--sans); margin-bottom: 6px; overflow: hidden; }
+.score-chip > span { padding: 3px 6px; }
+.score-chip .name { color: var(--critical-text); }
+.score-chip .value { border-left: 1px solid var(--critical); color: var(--ink-2); font-family: var(--mono); }
+.turn.pointed.pass .score-chip, .turn.pointed.pass .score-chip .value { border-color: var(--good); }
+.turn.pointed.pass .score-chip .name { color: var(--success-text); }
