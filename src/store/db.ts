@@ -606,6 +606,13 @@ export class Store {
     return rows.map(alertRow);
   }
 
+  /** Whether an agent run has recorded this session — what puts it in the agent's health and alerts. */
+  agentHasSession(agentId: string, sessionId: string): boolean {
+    return Boolean(this.#db
+      .prepare('SELECT 1 FROM session s JOIN run r ON r.id = s.run_id WHERE r.agent_id = ? AND s.session_id = ? LIMIT 1')
+      .get(agentId, sessionId));
+  }
+
   // ---- agents ----
 
   agents(): Agent[] {

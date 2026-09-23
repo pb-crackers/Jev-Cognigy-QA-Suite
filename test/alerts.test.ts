@@ -114,6 +114,16 @@ describe('firing', () => {
     store.close();
   });
 
+  it('reaches back past its usual span when a catch-up scored older sessions', () => {
+    const { store, agent } = setup();
+    scored(store, agent.id, 'ancient', '2026-09-10T09:00:00Z', { discount: '0.9' });
+    assert.deepEqual(evaluateAlerts(agent, rubrics, store, NOW), [], 'thirteen days old is beyond the usual span');
+    const [event] = evaluateAlerts(agent, rubrics, store, NOW, '2026-09-10T00:00:00.000Z');
+    assert.equal(event.alert.sessions[0], 'ancient');
+    assert.equal(event.late, true);
+    store.close();
+  });
+
   it('ignores an alert rubric the agent has switched off', () => {
     const { store, agent } = setup();
     scored(store, agent.id, 's1', '2026-09-23T11:00:00Z', { discount: '0.97' });

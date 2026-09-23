@@ -197,6 +197,10 @@ export function watchFieldProblems(rubric: Partial<Rubric>): string[] {
     else {
       if (!Number.isInteger(alert.threshold) || alert.threshold < 1) problems.push('alert.threshold must be a whole number of at least 1');
       if (!['session', 'hour', 'day'].includes(alert.window)) problems.push('alert.window must be session, hour or day');
+      // One session answers a rubric once, so it can never hold more than one hit.
+      if (alert.window === 'session' && alert.threshold > 1) {
+        problems.push('a session window can only have a threshold of 1 — use hour or day to count repeats');
+      }
     }
   }
   if (rubric.intent !== undefined && (typeof rubric.intent !== 'string' || rubric.intent.length > 500)) {

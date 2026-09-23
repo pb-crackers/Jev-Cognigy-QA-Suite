@@ -90,6 +90,11 @@ describe('Agent Watch fields on a rubric', () => {
       .some((p) => p.includes('window')));
   });
 
+  it('refuses a session window with a threshold above one, which could never fire', () => {
+    assert.ok(watchFieldProblems({ ...base, kind: 'alert', alert: { threshold: 3, window: 'session' } })
+      .some((p) => p.includes('session window can only have a threshold of 1')));
+  });
+
   it('rejects an unknown kind and an over-long intent', () => {
     assert.ok(watchFieldProblems({ ...base, kind: 'urgent' as 'alert' }).length > 0);
     assert.ok(watchFieldProblems({ ...base, intent: 'x'.repeat(501) }).length > 0);

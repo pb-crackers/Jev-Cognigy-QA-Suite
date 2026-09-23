@@ -176,7 +176,7 @@ export class OdataClient {
      */
     oldestFirst?: boolean;
     limit: number;
-  }): Promise<SessionSummary[]> {
+  }): Promise<SessionSummary[] & { truncated?: boolean }> {
     const clauses = [
       `projectId eq ${odataString(options.projectId)}`,
       `timestamp ge ${options.from}`,
@@ -197,10 +197,12 @@ export class OdataClient {
     const byId = new Map<string, SessionSummary>();
 
     const order = options.oldestFirst ? 'asc' : 'desc';
+    const MAX_RECORDS = 20_000;
+    let truncated = false;
 
     // OData here has no $apply/groupby, so sessions are derived by walking
     // records and folding them together.
-    for (let skip = 0; skip < 20_000; skip += 1000) {
+    for (let skip = 0; skip < MAX_RECORDS; skip += 1000) {
       const page = await this.#get<{ value: ConversationRecord[] }>(
         `/Conversations?$filter=${encodeURIComponent(clauses.join(' and '))}` +
           `&$orderby=timestamp ${order}&$top=1000&$skip=${skip}` +
@@ -236,12 +238,15 @@ export class OdataClient {
 
       if (page.value.length < 1000) break;
       if (byId.size >= options.limit) break;
+      // A full last page at the cap means records were left unread.
+      if (skip + 1000 >= MAX_RECORDS) truncated = true;
     }
 
     const all = [...byId.values()];
-    return options.oldestFirst
+    const result = options.oldestFirst
       ? all.sort((a, b) => a.startedAt.localeCompare(b.startedAt)).slice(0, options.limit)
       : all.sort((a, b) => b.lastAt.localeCompare(a.lastAt)).slice(0, options.limit);
+    return Object.assign(result, { truncated });
   }
 
   /** Cheap liveness probe used by `init`. */

@@ -22,6 +22,21 @@ import { importTraces, MAX_TRACE_BYTES, receiveTrace } from './traces/receiver.t
 import { scoreSessions } from './store/score.ts';
 import { labelFor } from './cognigy/channels.ts';
 
+/**
+ * Whether a request came from this machine rather than through a tunnel.
+ *
+ * Agent Watch is exposed to Cognigy through a tunnel so it can receive logged
+ * LLM calls, and only the webhook authenticates. Everything else — transcripts,
+ * paid scoring runs, deleting agents, rewriting live Cognigy node logging — must
+ * be reachable only from this machine. A tunnel forwards the public host name
+ * and adds forwarding headers, so both are checked; either gives it away.
+ */
+export function isLocalRequest(headers: IncomingMessage['headers']): boolean {
+  if (headers['cf-connecting-ip'] || headers['x-forwarded-for'] || headers['forwarded']) return false;
+  const host = String(headers.host ?? '').toLowerCase().replace(/:\d+$/, '');
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host === '::1';
+}
+
 export interface WatchDeps {
   config: Config;
   api: CognigyApi;
