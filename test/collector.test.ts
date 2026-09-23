@@ -13,6 +13,7 @@ import type { Notifier } from '../src/alerts/deliver.ts';
 let api: StubApi;
 let collectAgent: typeof import('../src/collector/collect.ts').collectAgent;
 let BATCH_LIMIT: number;
+let backfillToolCalls: typeof import('../src/collector/collect.ts').backfillToolCalls;
 let Scheduler: typeof import('../src/collector/scheduler.ts').Scheduler;
 let isDue: typeof import('../src/collector/scheduler.ts').isDue;
 let buildPlist: typeof import('../src/collector/launchd.ts').buildPlist;
@@ -74,7 +75,7 @@ before(async () => {
   api = await startStubApi({ r_discount: { type: 'noul', noul: 0.96 } });
   process.env.TYPESAFE_API_KEY = 'test-key-not-real';
   process.env.TYPESAFE_BASE_URL = api.baseURL;
-  ({ collectAgent, BATCH_LIMIT } = await import('../src/collector/collect.ts'));
+  ({ collectAgent, BATCH_LIMIT, backfillToolCalls } = await import('../src/collector/collect.ts'));
   ({ Scheduler, isDue } = await import('../src/collector/scheduler.ts'));
   ({ buildPlist } = await import('../src/collector/launchd.ts'));
   ({ Store } = await import('../src/store/db.ts'));
@@ -208,6 +209,33 @@ describe('collecting one agent', () => {
     assert.equal(report.alertsFired, 1);
     assert.deepEqual(sent, ['Offered a discount']);
     assert.equal(store.alerts({ agentId: agent.id })[0].delivered.macos, 'ok');
+    store.close();
+  });
+});
+
+describe('sessions scored before tool calls had records', () => {
+  it('get records and checks from the stored logs, once, without asking Jev', async () => {
+    const { store, agent } = setup();
+    const { readFileSync } = await import('node:fs');
+    const { importTraces } = await import('../src/traces/receiver.ts');
+    importTraces(store, agent.id, JSON.parse(readFileSync(new URL('./fixtures/trace-session.json', import.meta.url), 'utf8')));
+    store.saveRun({ id: 'old', startedAt: minutesAgo(90), projectId: 'p', projectName: 'P', endpointLabel: 'x', fromTs: 'a', toTs: 'b', sessions: 1, costUsd: 0, ms: 0, agentId: agent.id });
+    const oldTranscript = [
+      { role: 'user', text: 'what would my payment be?', at: minutesAgo(80), inputId: 'in-2' },
+      { role: 'system', text: '[tool call estimate_payment {}]', at: minutesAgo(80), inputId: 'in-2', tool: 'call' },
+      { role: 'agent', text: 'About $2,780.', at: minutesAgo(79), inputId: 'in-2' },
+    ];
+    store.saveSession({ runId: 'old', sessionId: 'sess-1', startedAt: minutesAgo(80), endpointLabel: 'REST', channel: 'rest', channelLabel: 'REST API',
+      flowName: 'F', turns: 2, chunks: 1, rating: null, ratingComment: null, unscoreable: null, transcript: JSON.stringify(oldTranscript),
+      costUsd: 0, ms: 0, lastAt: minutesAgo(79), traceCoverage: 'full' }, []);
+    const requests = api.requests.length;
+
+    assert.equal(backfillToolCalls(agent.id, store), 1);
+    assert.deepEqual(store.toolCallsFor(agent.id, 'sess-1').map((call) => call.name), ['estimate_payment']);
+    const checks = JSON.parse(store.agentSessions(agent.id)[0].checks!);
+    assert.equal(checks.latency.turns, 1, 'measured on the conversation, not the old tool lines');
+    assert.equal(backfillToolCalls(agent.id, store), 0, 'done once');
+    assert.equal(api.requests.length, requests, 'no Jev calls');
     store.close();
   });
 });

@@ -489,6 +489,11 @@ export class Store {
     for (const call of calls) insert.run(agentId, sessionId, call.seq, call.name, call.inputId ?? null, JSON.stringify(call));
   }
 
+  /** Records a session's stage-0 checks after the fact, without touching its scores. */
+  setSessionChecks(runId: string, sessionId: string, checks: string): void {
+    this.#db.prepare('UPDATE session SET checks = ? WHERE run_id = ? AND session_id = ?').run(checks, runId, sessionId);
+  }
+
   toolCallsFor(agentId: string, sessionId: string): ToolCallRecord[] {
     const rows = this.#db
       .prepare('SELECT json FROM tool_call WHERE agent_id = ? AND session_id = ? ORDER BY seq')

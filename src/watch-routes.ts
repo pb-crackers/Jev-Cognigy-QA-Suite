@@ -25,8 +25,8 @@ import { checkValidity, type ValidityReport } from './validity/validity.ts';
 import { importTraces, MAX_TRACE_BYTES, receiveTrace } from './traces/receiver.ts';
 import { scoreSessions } from './store/score.ts';
 import { labelFor } from './cognigy/channels.ts';
+import { agentRubrics, type Agent } from './agents/model.ts';
 import { cast, endpointBase, personasFor, restEndpoint, simulate, type TurnEvent } from './demo/simulate.ts';
-import type { Agent } from './agents/model.ts';
 
 /**
  * Whether a request came from this machine rather than through a tunnel.
@@ -298,8 +298,12 @@ export async function handleWatchRoute(
       const rubrics = store.rubrics();
       const [scored] = scoreSessions([row], store.latestResults([row.sessionId]), rubrics);
       const toolCalls = store.toolCallsFor(agentId!, row.sessionId);
+      const owner = store.agent(agentId!);
       return send(200, {
         ...row,
+        agentId,
+        // The rubrics this agent is graded on — another agent's custom rubric was never asked here.
+        rubricIds: owner ? agentRubrics(owner, rubrics).map((rubric) => rubric.id) : null,
         channelKind: labelFor(row.channel).kind,
         composite: scored.composite ?? null,
         flagged: scored.flagged,
@@ -308,7 +312,8 @@ export async function handleWatchRoute(
         toolCalls,
         // The conversation with each input's tool calls where they happened —
         // the same placement the grader read them in.
-        timeline: placeToolCalls(JSON.parse(row.transcript) as Turn[], toolCalls),
+        // Sessions scored before tool calls had records kept them as lines; the records replace them.
+        timeline: placeToolCalls((JSON.parse(row.transcript) as Turn[]).filter((turn) => !toolCalls.length || !turn.tool), toolCalls),
       }), true;
     }
 
