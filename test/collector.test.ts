@@ -154,6 +154,15 @@ describe('collecting one agent', () => {
     store.close();
   });
 
+  it("doesn't record a run for a collection that found nothing", async () => {
+    const { store, agent } = setup();
+    await collectAgent(agent.id, { api: cognigy, odata: feed([]).odata, store, notifier: notifier().n }, NOW);
+    assert.equal(store.runs().length, 0);
+    await collectAgent(agent.id, { api: cognigy, odata: feed([{ id: 's1', startedAt: minutesAgo(60), lastAt: minutesAgo(50) }]).odata, store, notifier: notifier().n }, new Date(NOW.getTime() + 61 * 60_000));
+    assert.equal(store.runs().length, 1, 'one that scored something is kept');
+    store.close();
+  });
+
   it('scores sooner when demo mode shortens the settle time', async () => {
     const { store, agent } = setup();
     const live = feed([{ id: 's1', startedAt: minutesAgo(8), lastAt: minutesAgo(2) }]);
