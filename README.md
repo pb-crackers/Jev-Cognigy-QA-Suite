@@ -101,6 +101,11 @@ What it adds:
   tokens and timing. Exact checks need no model — arguments against the schema, the tool
   refusing or erroring, a missing result, a repeated call — and the session view shows each
   call in the transcript where it happened.
+- **From an agent to any session.** Open a rubric to see its sessions, failures first, or list
+  every session the agent has. Open one from a rubric and the agent message its answer rests
+  on is marked: Jev is asked which message was the reason, once per answer, and the answer is
+  kept. Pass rates are counts ("passed 20 of 22 sessions"), and every number is labelled with
+  what it is — the probability of the answer shown, or Jev's confidence.
 - **Data you can trust, or told why not.** LLM logs are read through one normaliser that
   reports any field arriving in an unexpected shape instead of failing on it, and stored once
   however often Cognigy retries. A session that can't be scored is recorded with the reason
