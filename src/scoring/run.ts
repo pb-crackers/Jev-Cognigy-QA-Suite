@@ -266,8 +266,20 @@ export async function executeRun(
     limit: request.limit,
   });
 
-  // Failed sessions come back whenever they happened, in small batches.
-  const retry = (request.retrySessionIds ?? []).filter((id) => !candidates.some((session) => session.sessionId === id));
+  const found = candidates;
+  const deferred = request.settledBefore
+    ? candidates.filter((session) => session.lastAt > request.settledBefore!)
+    : [];
+  if (deferred.length) {
+    const held = new Set(deferred.map((session) => session.sessionId));
+    candidates = candidates.filter((session) => !held.has(session.sessionId));
+  }
+
+  // Failed sessions come back whenever they happened, in small batches. They
+  // join after discovery is counted: an old session retried must not look like
+  // a full batch, or pull the watermark back to when it happened.
+  const retried = new Set(request.retrySessionIds ?? []);
+  const retry = [...retried].filter((id) => !candidates.some((session) => session.sessionId === id));
   for (let index = 0; index < retry.length; index += 20) {
     const batch = await odata.sessions({
       projectId: request.projectId,
@@ -279,20 +291,11 @@ export async function executeRun(
       sessionIds: retry.slice(index, index + 20),
       limit: 20,
     });
-    candidates = Object.assign([...candidates, ...batch], { truncated: candidates.truncated });
+    candidates = [...candidates, ...batch];
   }
   const priorFailures = new Map(
     request.agentId ? store.failedSessions(request.agentId).map((failure) => [failure.sessionId, failure.attempts]) : [],
   );
-
-  const found = candidates;
-  const deferred = request.settledBefore
-    ? candidates.filter((session) => session.lastAt > request.settledBefore!)
-    : [];
-  if (deferred.length) {
-    const held = new Set(deferred.map((session) => session.sessionId));
-    candidates = candidates.filter((session) => !held.has(session.sessionId));
-  }
 
   // Which rubrics each session still needs. Ad-hoc runs keep the per-session
   // skip they have always had; agent runs ask only what is missing.
@@ -310,8 +313,11 @@ export async function executeRun(
     // A session whose every answer came from an earlier ad-hoc run still has to be
     // recorded under the agent: its health and alerts read only the agent's own
     // sessions. It is kept with nothing to ask — no Jev call, just the row.
+    // A retried session is always processed, even with nothing left to ask:
+    // recording it cleanly is what clears the failure.
     candidates = candidates.filter((session) =>
       (needs.get(session.sessionId)?.length ?? 0) > 0 ||
+      retried.has(session.sessionId) ||
       (request.agentId !== undefined && !store.agentHasSession(request.agentId, session.sessionId)));
   } else if (request.skipScored) {
     const seen = store.alreadyScored(request.projectId);
@@ -347,7 +353,7 @@ export async function executeRun(
       // Only an agent has traces: its webhook is where they arrive.
       const traces = request.agentId ? store.tracesFor(request.agentId, summary.sessionId) : [];
       const session = traces.length ? reconstruct(traces) : undefined;
-      if (session) checkToolCalls(session.toolCalls, session.tools);
+      if (session) checkToolCalls(session.toolCalls, session.tools, session.lastCallAt);
       const coverage = request.agentId ? traceCoverage(transcript.turns, session) : null;
 
       if (!transcript.unscoreable) {

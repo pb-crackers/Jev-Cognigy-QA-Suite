@@ -281,6 +281,21 @@ describe('scheduling', () => {
     store.close();
   });
 
+  it('holds other scoring work until a tick is done, and keeps ticks off while it runs', async () => {
+    const { store } = setup();
+    const scheduler = new Scheduler({ api: cognigy, odata: feed([]).odata, store });
+    const order: string[] = [];
+    const tick = scheduler.tick(NOW).then(() => order.push('tick'));
+    const work = scheduler.exclusive(async () => {
+      order.push('work');
+      assert.deepEqual(await scheduler.tick(NOW), [], 'a tick during the work is skipped');
+    });
+    await Promise.all([tick, work]);
+    assert.deepEqual(order, ['tick', 'work']);
+    assert.equal(scheduler.busy, false);
+    store.close();
+  });
+
   it('runs a collect-now without overlapping a tick', async () => {
     const { store, agent } = setup();
     const scheduler = new Scheduler({ api: cognigy, odata: feed([]).odata, store });

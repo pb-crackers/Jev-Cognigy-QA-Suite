@@ -19,49 +19,70 @@ export type Placed =
   | { kind: 'turn'; turn: Turn }
   | { kind: 'calls'; inputId?: string; calls: ToolCallRecord[] };
 
-/** Enough of a sentence to recognise it through whitespace, markdown and masking differences. */
+/** Enough of a sentence to recognise it through whitespace, markdown and masking differences, in any script. */
 function gist(text: string): string {
-  return text.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 40);
+  return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '').slice(0, 40);
 }
 
-function isPreamble(turn: Turn, calls: ToolCallRecord[]): boolean {
+function isPreamble(turn: Turn, round: ToolCallRecord[]): boolean {
   const said = gist(turn.text);
   if (!said) return false;
-  return calls.some((call) => {
+  return round.some((call) => {
     const before = call.preamble ? gist(call.preamble) : '';
     return before !== '' && (before.startsWith(said) || said.startsWith(before));
   });
 }
 
 export function placeToolCalls(turns: Turn[], records: ToolCallRecord[]): Placed[] {
-  const pending = new Map<string, ToolCallRecord[]>();
+  // Each input's calls, split by the LLM response that made them: one response
+  // may say something first, and that text is where its calls belong.
+  const pending = new Map<string, ToolCallRecord[][]>();
   const orphans: ToolCallRecord[] = [];
   for (const record of records) {
     if (!record.inputId) {
       orphans.push(record);
       continue;
     }
-    const list = pending.get(record.inputId) ?? [];
-    list.push(record);
-    pending.set(record.inputId, list);
+    const rounds = pending.get(record.inputId) ?? [];
+    const last = rounds.at(-1);
+    if (last && last[0].round === record.round) last.push(record);
+    else rounds.push([record]);
+    pending.set(record.inputId, rounds);
   }
 
   const out: Placed[] = [];
+  // Calls with nothing said between them share one block on the rail.
+  const emit = (inputId: string | undefined, calls: ToolCallRecord[]) => {
+    const last = out.at(-1);
+    if (last?.kind === 'calls' && last.inputId === inputId) last.calls.push(...calls);
+    else out.push({ kind: 'calls', inputId, calls: [...calls] });
+  };
+
   for (const turn of turns) {
-    const calls = turn.role === 'agent' && turn.inputId ? pending.get(turn.inputId) : undefined;
-    if (calls && !isPreamble(turn, calls)) {
-      out.push({ kind: 'calls', inputId: turn.inputId, calls });
+    const rounds = turn.role === 'agent' && turn.inputId ? pending.get(turn.inputId) : undefined;
+    if (rounds?.length) {
+      const said = rounds.findIndex((round) => isPreamble(turn, round));
+      if (said >= 0) {
+        // Rounds before it happened before the agent said this; its own round follows it.
+        for (const round of rounds.splice(0, said)) emit(turn.inputId, round);
+        out.push({ kind: 'turn', turn });
+        emit(turn.inputId, rounds.shift()!);
+        if (!rounds.length) pending.delete(turn.inputId!);
+        continue;
+      }
+      // Not a lead-in: this is the reply, and every call left for the input came before it.
+      for (const round of rounds) emit(turn.inputId, round);
       pending.delete(turn.inputId!);
     }
     out.push({ kind: 'turn', turn });
   }
 
-  for (const [inputId, calls] of pending) {
+  for (const [inputId, rounds] of pending) {
     let at = -1;
     out.forEach((item, index) => {
       if (item.kind === 'turn' && item.turn.inputId === inputId) at = index;
     });
-    const block: Placed = { kind: 'calls', inputId, calls };
+    const block: Placed = { kind: 'calls', inputId, calls: rounds.flat() };
     if (at === -1) out.push(block);
     else out.splice(at + 1, 0, block);
   }

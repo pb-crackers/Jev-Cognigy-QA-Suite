@@ -69,21 +69,28 @@ describe('tool call checks', () => {
     assert.ok(session.toolCalls.every((call) => call.checks.every((check) => check.outcome === 'pass')));
   });
 
-  it('flags a repeat of the same call, whatever the key order', () => {
-    const calls = [record({ seq: 1, args: { field: 'phone', loan_last4: '2286' } }), record({ seq: 2 })];
+  it('flags a repeat of the same call in the same turn, whatever the key order', () => {
+    const calls = [record({ seq: 1, inputId: 'in-1', args: { field: 'phone', loan_last4: '2286' } }), record({ seq: 2, inputId: 'in-1' }), record({ seq: 3, inputId: 'in-2' })];
     checkToolCalls(calls, []);
     assert.equal(outcome(calls[0], 'repeat'), 'pass');
-    assert.equal(calls[1].checks.find((check) => check.id === 'repeat')!.detail, 'the same call as #1');
+    assert.equal(calls[1].checks.find((check) => check.id === 'repeat')!.detail, 'the same call as #1, in the same turn');
+    assert.equal(outcome(calls[2], 'repeat'), 'pass', 'asking again in a later turn can be right');
   });
 
   it('flags unreadable arguments, an unknown tool and a missing result — and says what it could not check', () => {
-    const [bad] = [record({ args: null, argsRaw: '{oops', name: 'nope', definition: undefined, result: undefined, resultJson: undefined })];
-    checkToolCalls([bad], [{ name: 'update', description: '' }]);
+    const bad = record({ args: null, argsRaw: '{oops', name: 'nope', definition: undefined, result: undefined, resultJson: undefined, calledAt: '2026-09-23T10:00:00.000Z' });
+    checkToolCalls([bad], [{ name: 'update', description: '' }], '2026-09-23T10:00:05.000Z');
     assert.equal(outcome(bad, 'args_parse'), 'fail');
     assert.equal(outcome(bad, 'known_tool'), 'fail');
     assert.equal(outcome(bad, 'schema'), 'unchecked');
-    assert.equal(outcome(bad, 'has_result'), 'fail');
+    assert.equal(outcome(bad, 'has_result'), 'fail', 'a later call was logged without it');
     assert.equal(outcome(bad, 'tool_error'), 'unchecked');
+  });
+
+  it("doesn't fault a call at the very end of a conversation for having no result", () => {
+    const last = record({ result: undefined, resultJson: undefined, calledAt: '2026-09-23T10:00:05.000Z' });
+    checkToolCalls([last], [], '2026-09-23T10:00:05.000Z');
+    assert.equal(outcome(last, 'has_result'), 'unchecked');
   });
 
   it('reads the ways a tool says no', () => {

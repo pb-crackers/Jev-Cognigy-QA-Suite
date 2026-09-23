@@ -14,7 +14,7 @@ export const CALL_CHECKS = {
   known_tool: 'The tool exists',
   schema: 'Arguments match the schema',
   tool_error: 'The tool accepted the call',
-  repeat: 'Not a repeat of an earlier call',
+  repeat: 'Not a repeat within the same turn',
   has_result: 'The tool returned a result',
 } as const;
 
@@ -45,8 +45,12 @@ function signature(record: ToolCallRecord): string {
   return `${record.name}\u0000${JSON.stringify(sorted(record.args ?? record.argsRaw))}`;
 }
 
-/** Fills in each call's checks. The calls must be in session order. */
-export function checkToolCalls(records: ToolCallRecord[], tools: SessionTrace['tools']): void {
+/**
+ * Fills in each call's checks. The calls must be in session order.
+ * `lastCallAt` is when the session's last LLM call was made: a result shows up
+ * only in a later call, so a call at the very end can't be faulted for having none.
+ */
+export function checkToolCalls(records: ToolCallRecord[], tools: SessionTrace['tools'], lastCallAt?: string): void {
   const seen = new Map<string, number>();
   for (const record of records) {
     const checks: CheckResult[] = [];
@@ -72,7 +76,10 @@ export function checkToolCalls(records: ToolCallRecord[], tools: SessionTrace['t
     }
 
     if (record.result === undefined) {
-      checks.push({ id: 'has_result', label: CALL_CHECKS.has_result, outcome: 'fail', detail: 'no result was logged for this call' });
+      const couldHave = Boolean(record.calledAt && lastCallAt && record.calledAt < lastCallAt);
+      checks.push(couldHave
+        ? { id: 'has_result', label: CALL_CHECKS.has_result, outcome: 'fail', detail: 'a later LLM call was logged, but not with this result' }
+        : { id: 'has_result', label: CALL_CHECKS.has_result, outcome: 'unchecked', detail: 'the conversation ended before a result could be logged' });
       checks.push({ id: 'tool_error', label: CALL_CHECKS.tool_error, outcome: 'unchecked', detail: 'no result to read' });
     } else {
       checks.push({ id: 'has_result', label: CALL_CHECKS.has_result, outcome: 'pass' });
@@ -80,11 +87,13 @@ export function checkToolCalls(records: ToolCallRecord[], tools: SessionTrace['t
       checks.push(failure ? { id: 'tool_error', label: CALL_CHECKS.tool_error, outcome: 'fail', detail: failure } : { id: 'tool_error', label: CALL_CHECKS.tool_error, outcome: 'pass' });
     }
 
-    const key = signature(record);
+    // Only within one turn: asking again later — a balance after a payment — can
+    // be right, and whether it was needed is a judgement, not a fact.
+    const key = `${record.inputId ?? ''}\u0000${signature(record)}`;
     const first = seen.get(key);
     checks.push(first === undefined
       ? { id: 'repeat', label: CALL_CHECKS.repeat, outcome: 'pass' }
-      : { id: 'repeat', label: CALL_CHECKS.repeat, outcome: 'fail', detail: `the same call as #${first}` });
+      : { id: 'repeat', label: CALL_CHECKS.repeat, outcome: 'fail', detail: `the same call as #${first}, in the same turn` });
     if (first === undefined) seen.set(key, record.seq);
 
     record.checks = checks;

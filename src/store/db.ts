@@ -10,7 +10,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Rubric } from '../rubrics/model.ts';
 import type { Agent } from '../agents/model.ts';
-import type { StoredTrace, TracePayload } from '../traces/model.ts';
+import { traceKey, unwrapTrace, type StoredTrace, type TracePayload } from '../traces/model.ts';
 import type { ToolCallRecord } from '../traces/reconstruct.ts';
 import { databaseFile } from '../paths.ts';
 
@@ -170,6 +170,9 @@ CREATE TABLE IF NOT EXISTS tool_call (
 );
 `;
 
+/** Bumped whenever `traceKey` changes, so stored calls are keyed afresh. */
+const TRACE_KEY_VERSION = '2';
+
 export class Store {
   readonly #db: DatabaseSync;
 
@@ -202,18 +205,29 @@ export class Store {
     add('session', 'attempts', 'INTEGER');
     add('session', 'checks', 'TEXT');
 
-    // What identifies one logged call, so a retried or re-imported payload is
-    // stored once rather than counted twice. Cognigy's traceId is per user turn,
-    // not per call — a turn with a tool call shares it across its calls — so
-    // the call's own millisecond timestamp is part of the key.
-    if (!has('trace', 'trace_id')) {
-      this.#db.exec('ALTER TABLE trace ADD COLUMN trace_id TEXT');
-      this.#db.exec(`UPDATE trace SET trace_id = COALESCE(
-        json_extract(json, '$.meta.traceId'), json_extract(json, '$.body.meta.traceId'),
-        session_id || '|' || COALESCE(input_id, '')) || '|' || event_at`);
-      this.#db.exec(`DELETE FROM trace WHERE id NOT IN (SELECT MIN(id) FROM trace GROUP BY agent_id, trace_id)`);
+    // Each logged call is stored once, however often it is delivered (see
+    // `traceKey`). Existing rows are keyed afresh whenever the key changes, in
+    // one transaction: a half-keyed table would dedupe some calls and not others.
+    if (!has('trace', 'trace_id')) this.#db.exec('ALTER TABLE trace ADD COLUMN trace_id TEXT');
+    const keyed = this.#db.prepare("SELECT value FROM meta WHERE key = 'trace_key'").get() as { value: string } | undefined;
+    if (keyed?.value !== TRACE_KEY_VERSION) {
+      this.#db.exec('BEGIN');
+      try {
+        this.#db.exec('DROP INDEX IF EXISTS trace_once');
+        const update = this.#db.prepare('UPDATE trace SET trace_id = ? WHERE id = ?');
+        for (const row of this.#db.prepare('SELECT id, json FROM trace').all() as { id: number; json: string }[]) {
+          const payload = unwrapTrace(JSON.parse(row.json));
+          update.run(payload ? traceKey(payload) : `unreadable|${row.id}`, row.id);
+        }
+        this.#db.exec('DELETE FROM trace WHERE id NOT IN (SELECT MIN(id) FROM trace GROUP BY agent_id, trace_id)');
+        this.#db.exec('CREATE UNIQUE INDEX trace_once ON trace (agent_id, trace_id)');
+        this.#db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('trace_key', ?)").run(TRACE_KEY_VERSION);
+        this.#db.exec('COMMIT');
+      } catch (error) {
+        this.#db.exec('ROLLBACK');
+        throw error;
+      }
     }
-    this.#db.exec('CREATE UNIQUE INDEX IF NOT EXISTS trace_once ON trace (agent_id, trace_id)');
   }
 
   close(): void {
@@ -382,7 +396,7 @@ export class Store {
     const rows = this.#db
       .prepare(
         `SELECT DISTINCT s.session_id FROM session s
-         JOIN run r ON r.id = s.run_id WHERE r.project_id = ?`,
+         JOIN run r ON r.id = s.run_id WHERE r.project_id = ? AND s.error IS NULL`,
       )
       .all(projectId) as { session_id: string }[];
     return new Set(rows.map((row) => row.session_id));
@@ -451,7 +465,7 @@ export class Store {
       .prepare(
         `SELECT s.* FROM session s JOIN run r ON r.id = s.run_id
          WHERE r.agent_id = ? ${since ? 'AND s.started_at >= ?' : ''}
-         ORDER BY r.started_at ASC`,
+         ORDER BY r.started_at ASC, s.rowid ASC`,
       )
       .all(...(since ? [agentId, since] : [agentId])) as Record<string, never>[];
     const newest = new Map<string, SessionRow>();
@@ -465,15 +479,14 @@ export class Store {
 
   /** Stores a logged call once. Returns false when it was already stored. */
   saveTrace(agentId: string, payload: TracePayload, receivedAt = new Date().toISOString()): boolean {
-    const { sessionId, inputId, timestamp, traceId } = payload.meta;
+    const { sessionId, inputId, timestamp } = payload.meta;
     const result = this.#db
       .prepare(
         `INSERT OR IGNORE INTO trace (agent_id, session_id, input_id, event_at, received_at, json, trace_id)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
-        agentId, sessionId, inputId ?? null, timestamp, receivedAt, JSON.stringify(payload),
-        `${traceId ?? `${sessionId}|${inputId ?? ''}`}|${timestamp}`,
+        agentId, sessionId, inputId ?? null, timestamp, receivedAt, JSON.stringify(payload), traceKey(payload),
       );
     return result.changes > 0;
   }
@@ -506,9 +519,37 @@ export class Store {
    * in a row it has — what the collector retries.
    */
   failedSessions(agentId: string): { sessionId: string; attempts: number; error: string }[] {
-    return this.agentSessions(agentId)
-      .filter((session) => session.error)
+    return this.#newest(agentId, 'error IS NOT NULL')
       .map((session) => ({ sessionId: session.sessionId, attempts: session.attempts ?? 1, error: session.error! }));
+  }
+
+  /** Sessions whose newest row has no stage-0 checks yet — scored before checks existed. */
+  sessionsWithoutChecks(agentId: string): SessionRow[] {
+    return this.#newest(agentId, 'checks IS NULL AND error IS NULL');
+  }
+
+  /** Every row an agent has for one session, newest first. */
+  sessionRows(agentId: string, sessionId: string): SessionRow[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT s.* FROM session s JOIN run r ON r.id = s.run_id
+         WHERE r.agent_id = ? AND s.session_id = ? ORDER BY r.started_at DESC, s.rowid DESC`,
+      )
+      .all(agentId, sessionId) as Record<string, never>[];
+    return rows.map(sessionRow);
+  }
+
+  /** Each session's newest row under an agent, narrowed by a condition on that row. */
+  #newest(agentId: string, where: string): SessionRow[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT * FROM (
+           SELECT s.*, ROW_NUMBER() OVER (PARTITION BY s.session_id ORDER BY r.started_at DESC, s.rowid DESC) AS newest
+           FROM session s JOIN run r ON r.id = s.run_id WHERE r.agent_id = ?
+         ) WHERE newest = 1 AND ${where}`,
+      )
+      .all(agentId) as Record<string, never>[];
+    return rows.map(sessionRow);
   }
 
   tracesFor(agentId: string, sessionId: string): StoredTrace[] {

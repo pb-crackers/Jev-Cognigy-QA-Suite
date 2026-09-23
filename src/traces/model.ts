@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 /**
  * What Cognigy sends when an AI Agent or LLM Prompt node has logging on.
  *
@@ -112,4 +114,18 @@ export function toolCallName(call: TraceToolCall): string {
 export function toolCallArguments(call: TraceToolCall): string {
   const args = call.function?.arguments ?? call.arguments ?? '';
   return typeof args === 'string' ? args : JSON.stringify(args);
+}
+
+/**
+ * What makes one logged call that call, so a retried or re-imported delivery is
+ * stored once. Not the arrival time: a payload without a timestamp is given one
+ * on arrival, and a retry would get a different one. Cognigy's traceId names the
+ * user turn, not the call, so the call is pinned by how much history it was sent
+ * — each call in a turn is sent more than the last — and what came back.
+ */
+export function traceKey(payload: TracePayload): string {
+  const { sessionId, inputId, traceId } = payload.meta;
+  const sent = payload.request?.body?.messages?.length ?? 0;
+  const digest = createHash('sha256').update(JSON.stringify(payload.response ?? null)).digest('hex').slice(0, 24);
+  return `${sessionId}|${inputId ?? ''}|${traceId ?? ''}|${sent}|${digest}`;
 }
