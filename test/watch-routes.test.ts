@@ -106,6 +106,27 @@ describe('agents over HTTP', () => {
     assert.equal((await call('/api/agents/home-loans/rubrics/nope')).status, 404);
   });
 
+  it('finds the message behind an answer once, then serves it from what was stored', async () => {
+    store.saveRun({ id: 'loc-run', startedAt: new Date().toISOString(), projectId: 'p1', projectName: 'P', endpointLabel: 'REST',
+      fromTs: 'a', toTs: 'b', sessions: 1, costUsd: 0, ms: 0, agentId: 'home-loans' });
+    store.saveSession({ runId: 'loc-run', sessionId: 'loc-1', startedAt: new Date().toISOString(), endpointLabel: 'REST', channel: 'rest',
+      channelLabel: 'REST API', flowName: 'Main', turns: 2, chunks: 1, rating: null, ratingComment: null, unscoreable: null,
+      transcript: JSON.stringify([{ role: 'user', text: 'hi', at: 't' }, { role: 'agent', text: 'hello', at: 't' }]), costUsd: 0, ms: 0 },
+    [{ runId: 'loc-run', sessionId: 'loc-1', rubricId: 'jailbroken', raw: '0.1', confidence: null, chunks: 1, decidedBy: null }]);
+    const ask = (body: object) => call('/api/sessions/loc-1/locate', { method: 'POST', body: JSON.stringify(body) });
+
+    assert.equal((await ask({ agentId: 'home-loans', rubricId: 'nope' })).status, 404);
+    const unanswered = await ask({ agentId: 'home-loans', rubricId: 'harmful_content' });
+    assert.equal(unanswered.status, 409);
+    assert.match(unanswered.body.error, /no answer for this session yet/);
+
+    store.saveLocate('home-loans', 'loc-1', 'jailbroken', { raw: '0.1', turnIndex: null, message: null, confidence: 0.8, reason: 'no single message decides this one' });
+    const stored = await ask({ agentId: 'home-loans', rubricId: 'jailbroken' });
+    assert.equal(stored.status, 200);
+    assert.equal(stored.body.cached, true);
+    assert.equal(stored.body.reason, 'no single message decides this one');
+  });
+
   it('asks which session to score before retrying', async () => {
     const { status, body } = await call('/api/agents/home-loans/retry', { method: 'POST', body: '{}' });
     assert.equal(status, 400);
