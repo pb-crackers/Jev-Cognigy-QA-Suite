@@ -22,6 +22,8 @@ export interface Turn {
   at: string;
   /** The user input this turn belongs to — the key that joins it to a logged LLM call. */
   inputId?: string;
+  /** Set on a system line that records a tool call or its result, from a logged LLM call. */
+  tool?: 'call' | 'result';
   /** Flow node that produced the turn, when reported. */
   nodeType?: string;
   nodeLabel?: string;

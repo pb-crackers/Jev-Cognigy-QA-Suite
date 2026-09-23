@@ -12,7 +12,10 @@ import { assemble, render, type Transcript } from '../cognigy/transcript.ts';
 import { ask } from '../jev.ts';
 import { Ledger } from '../metering.ts';
 import { applicable, compile, questionId } from '../rubrics/compile.ts';
-import type { Rubric } from '../rubrics/model.ts';
+import { traceReady, type Rubric } from '../rubrics/model.ts';
+import type { TraceCoverage } from '../store/db.ts';
+import { reconstruct, traceCoverage, type SessionTrace } from '../traces/reconstruct.ts';
+import { fixedState, fixedTokens, withToolLines } from './state.ts';
 import { chunkTurns, estimateTokens, stateBudget } from './chunk.ts';
 import { combineAnswers, type ChunkAnswer } from './combine.ts';
 import type { ResultRow, RunRow, SessionRow, Store } from '../store/db.ts';
@@ -100,15 +103,22 @@ async function scoreTranscript(
   transcript: Transcript,
   rubrics: Rubric[],
   ledger: Ledger,
-): Promise<{ results: Omit<ResultRow, 'runId' | 'sessionId'>[]; chunks: number }> {
+  trace?: { session: SessionTrace | undefined; coverage: TraceCoverage },
+): Promise<{ results: Omit<ResultRow, 'runId' | 'sessionId'>[]; chunks: number; turns: Transcript['turns'] }> {
   // A rubric can be scoped to one modality, so the set asked of this transcript
   // is derived once and used both to build the questions and to read the answers
   // back. Deriving it twice is how the two would drift.
   const modality = modalityOf(transcript.channelLabel.kind);
-  const asked = applicable(rubrics, modality);
+  const asked = applicable(rubrics, modality).filter((rubric) => traceReady(rubric, trace?.coverage));
   const questions = compile(asked, modality);
   const questionTokens = estimateTokens(JSON.stringify(questions));
-  const chunks = chunkTurns(transcript.turns, stateBudget(questionTokens));
+
+  // The instructions and tools are the same for every chunk, so they come out
+  // of the budget before the conversation is divided.
+  const fixed = fixedState(trace?.session);
+  const turnsWithTools = withToolLines(transcript.turns, trace?.session);
+  const chunks = chunkTurns(turnsWithTools, stateBudget(questionTokens) - fixedTokens(fixed));
+  if (asked.length === 0) return { results: [], chunks: 0, turns: turnsWithTools };
 
   const perRubric = new Map<string, ChunkAnswer[]>();
 
@@ -117,6 +127,7 @@ async function scoreTranscript(
       conversation: render({ ...transcript, turns }),
       ...(chunks.length > 1 ? { part: `${index + 1} of ${chunks.length}` } : {}),
       ...(transcript.flowName ? { flow: transcript.flowName } : {}),
+      ...fixed,
     };
 
     const { answers } = await ask({
@@ -151,7 +162,7 @@ async function scoreTranscript(
     });
   }
 
-  return { results, chunks: chunks.length };
+  return { results, chunks: chunks.length, turns: turnsWithTools };
 }
 
 export async function executeRun(
@@ -228,11 +239,23 @@ export async function executeRun(
 
     let results: Omit<ResultRow, 'runId' | 'sessionId'>[] = [];
     let chunks = 0;
+    let turns = transcript.turns;
+
+    // Only an agent has traces: its webhook is where they arrive.
+    const traces = request.agentId ? store.tracesFor(request.agentId, summary.sessionId) : [];
+    const session = traces.length ? reconstruct(traces) : undefined;
+    const coverage = request.agentId ? traceCoverage(transcript.turns, session) : null;
 
     if (!transcript.unscoreable) {
-      const scored = await scoreTranscript(transcript, needs.get(summary.sessionId) ?? enabled, ledger);
+      const scored = await scoreTranscript(
+        transcript,
+        needs.get(summary.sessionId) ?? enabled,
+        ledger,
+        coverage ? { session, coverage } : undefined,
+      );
       results = scored.results;
       chunks = scored.chunks;
+      turns = scored.turns;
       if (chunks > 1) split++;
     }
 
@@ -250,10 +273,11 @@ export async function executeRun(
       rating: transcript.rating,
       ratingComment: transcript.ratingComment,
       unscoreable: transcript.unscoreable ?? null,
-      transcript: JSON.stringify(transcript.turns),
+      transcript: JSON.stringify(turns),
       costUsd: spend.costUsd,
       ms: Date.now() - sessionMs,
       lastAt: summary.lastAt,
+      traceCoverage: coverage,
     };
 
     store.saveSession(
