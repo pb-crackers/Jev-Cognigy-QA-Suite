@@ -59,6 +59,63 @@ Cognigy user — that last one is granted separately from the key itself.
 
 JSON goes to stdout, progress to stderr.
 
+## Agent Watch
+
+Scoring a date range answers "how did we do last week". Agent Watch answers "how is the
+agent doing right now" — and tells you when something needs you.
+
+Define an **agent** — a project, the endpoints that are its traffic, and the rubrics it is
+graded on — and leave the app running. It collects new conversations on a schedule, scores
+them, fires alerts, and keeps a health figure for every agent you watch.
+
+```bash
+jev-cognigy-qa agent suggest --project "My project"        # agents proposed from its endpoints
+jev-cognigy-qa agent add --project "My project" --suggestion my-agent
+jev-cognigy-qa watch                                        # UI, webhook and collector, no browser
+jev-cognigy-qa daemon install                               # keep it running from login (macOS)
+```
+
+What it adds:
+
+- **A health figure that says what it rests on.** The mean composite over a window, with a
+  95% interval, flagged as indicative below thirty sessions, weighted towards rubrics that
+  have been checked, and reporting how much of itself rests on them.
+- **Alert rubrics.** A yes/no question with a threshold and a window: "tell me every time the
+  agent offers a discount", or "tell me when there are ten jailbreak attempts in a day".
+  Windows are keyed on when conversations happened, so a catch-up after the laptop was
+  closed does not trip them all at once. Alerts go to a macOS notification and a webhook
+  (Slack and Teams both render it).
+- **A rubric library** that ships with the tool: jailbreak attempts and whether they worked,
+  disclosed instructions, sensitive data requests, harmful content — and, for agents whose
+  LLM calls are logged, whether the agent broke its own instructions, stated facts its
+  instructions say must come from a tool, invented tool arguments, or claimed actions it
+  never took.
+- **The agent's own instructions and tool calls.** AI Agent and LLM Prompt nodes can post
+  every LLM call to a webhook. Agent Watch switches that on for you — reading each node,
+  changing only the logging fields, writing the whole configuration back, and restoring it
+  exactly on removal — and then grades conversations with the prompt as it was sent and
+  every tool call where it happened. Cognigy has to be able to reach the webhook, so this
+  needs a tunnel and `AGENT_WATCH_PUBLIC_URL`.
+- **Rubric validity.** Whether each rubric can be answered from what the grader is given,
+  asks one thing, would get the same answer from two reviewers, and catches what its author
+  said it should — plus how often its verdict flips on an identical re-ask.
+- **Coverage.** Which of the agent's instructions no rubric specifically checks.
+
+| Command | Does |
+| --- | --- |
+| `watch` | Run the UI, webhook and collector without opening a browser |
+| `agents` | Every watched agent with its health |
+| `agent suggest --project <name>` | Agents proposed from a project's endpoints |
+| `agent add --project <name> --suggestion <id>` | Watch one (`--panel` to include Interaction Panel sessions in its Flows) |
+| `agent collect <id>` | Collect and score now |
+| `agent health <id> [--window 7d]` | Health, pass rates, failing sessions |
+| `agent logging <id> [--install \| --take-over \| --uninstall]` | LLM logging on the agent's nodes |
+| `agent coverage <id>` | Instructions no rubric checks |
+| `alerts` | What fired |
+| `validity [--stability]` | Check every rubric |
+| `trace import <agentId> --file <path>` | Load logged LLM calls captured elsewhere |
+| `daemon install \| uninstall \| status` | The background service (macOS) |
+
 ## How a rubric works
 
 A question, an answer type, and a weight. The three types map onto what Jev returns:

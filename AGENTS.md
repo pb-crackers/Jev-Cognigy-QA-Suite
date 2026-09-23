@@ -84,6 +84,11 @@ JSON goes to stdout and progress to stderr, so output pipes cleanly.
 ## What not to do
 
 - Do not run `init`, handle their API keys, or read `.env`.
+- Do not create a tunnel or set `AGENT_WATCH_PUBLIC_URL`; exposing their machine to the
+  internet is the user's decision. Tell them it is needed for LLM logging and stop there.
+- Do not take over a Cognigy node's logging from another webhook without asking — it cuts
+  off whatever received those logs before.
+- Do not run `daemon install` without asking: it adds a login item to their Mac.
 - Do not present a low-confidence score as a bad result. It usually means the transcript
   was too thin to judge, and the session is flagged for a human instead.
 - Do not summarise from raw `score` output when `brief` already exists — it ranks the

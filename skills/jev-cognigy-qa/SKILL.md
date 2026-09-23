@@ -5,8 +5,11 @@ description: >
   Use when the user wants to QA, grade, audit or review Cognigy sessions in bulk — "how
   are my conversations going", "did the agent follow instructions", "score last week's
   calls", "why are customers dropping off" — or wants to author, edit or validate scoring
-  rubrics. Drives everything headlessly: writes rubrics, runs a date range, reads results
-  back as JSON, and summarises findings.
+  rubrics. Also for watching agents continuously (Agent Watch) — "alert me if the agent
+  ever…", "how healthy is our agent", "watch this bot", jailbreak or compliance monitoring,
+  agent health scores, and checking whether rubrics measure what they should. Drives
+  everything headlessly: writes rubrics, runs a date range, defines watched agents, reads
+  results back as JSON, and summarises findings.
 ---
 
 # Cognigy transcript QA with Jev
@@ -257,6 +260,79 @@ Lead with patterns, not per-session dumps:
 summarising: rubrics ranked worst-first, what each measures, real transcript excerpts as
 evidence, and the caveats stated. Prefer reading that over assembling a summary from raw
 `score` output, and add what the user specifically asked about on top of it.
+
+## Agent Watch — watching agents continuously
+
+When the user wants something **watched** rather than scored once — "tell me if the agent
+ever…", "how healthy is our agent", "alert me when…" — use agents instead of `score`.
+
+```bash
+jev-cognigy-qa agent suggest --project "<name>"                 # proposals from its endpoints
+jev-cognigy-qa agent add --project "<name>" --suggestion <id>   # add --panel to include panel tests
+jev-cognigy-qa agent collect <id>                               # score new conversations now
+jev-cognigy-qa agent health <id> --window 7d                    # the figure and what it rests on
+jev-cognigy-qa alerts --agent <id>
+```
+
+Collection normally happens by itself while `jev-cognigy-qa watch` (or the background
+service from `daemon install`) is running. Tell the user that, rather than collecting on a
+timer yourself.
+
+### Writing an alert rubric
+
+An alert is a **boolean** question where *yes means the event happened*, plus a rule:
+
+```json
+{
+  "id": "offered_discount",
+  "name": "Offered a discount",
+  "question": "Did the agent offer the customer a discount or price reduction?",
+  "type": "boolean",
+  "weight": 0,
+  "invert": true,
+  "kind": "alert",
+  "alert": { "threshold": 1, "window": "session" },
+  "intent": "The agent has no authority to discount; know the first time it does."
+}
+```
+
+- `threshold: 1, window: "session"` — alert on every occurrence.
+- `threshold: 10, window: "day"` — alert on volume, such as repeated jailbreak attempts.
+- `weight: 0` keeps it out of the health figure. Give it weight if the event is the agent
+  failing rather than a user misbehaving.
+- A rubric you add is **custom**, so it is off for every existing agent. Switch it on for the
+  agent it was written for:
+  `jev-cognigy-qa agent edit <id> --json '{"rubrics":{"offered_discount":true}}'`
+
+### Health — report it honestly
+
+`agent health` returns `health` (0–1), `interval`, `reportable`, `sessions` and
+`verifiedShare`. When `reportable` is false there are fewer than thirty sessions: say the
+figure is indicative, do not present "84%" as a health score. Quote the interval. Mention how
+much rests on checked rubrics; run `jev-cognigy-qa validity` if little does.
+
+### The agent's own instructions
+
+`agent logging <id>` shows every AI Agent and LLM Prompt node the agent's traffic reaches,
+and whether it logs here, elsewhere, or not at all. `--install` switches logging on for nodes
+that are off; a node already logging somewhere else is left alone unless the user explicitly
+agrees to `--take-over`, because a node has one webhook and taking it cuts off whatever
+received it before. **Ask before taking over.** `--uninstall` restores every node exactly.
+
+Logging needs `AGENT_WATCH_PUBLIC_URL` — a tunnel Cognigy can reach. That is the user's to set
+up; do not try to create one.
+
+Rubrics marked `requiresTrace` (off_instruction, figures_without_tool, invented_tool_arguments,
+claimed_action_without_tool) are only asked on conversations where every LLM call was logged.
+Elsewhere they are not applicable, and that is not a failure.
+
+### Is a rubric any good?
+
+`jev-cognigy-qa validity` checks each rubric's wording and behaviour; `--stability` also
+re-asks scored sessions to see how often verdicts flip. A rubric with notes — "asks more than
+one thing", "reviewers could disagree", "may not catch what its intent says" — should usually
+be reworded before anyone trusts what it reports. `agent coverage <id>` lists the agent's
+instructions that no rubric specifically checks; those are candidates for new rubrics.
 
 ## Pitfalls
 
