@@ -14,6 +14,7 @@ let api: StubApi;
 let collectAgent: typeof import('../src/collector/collect.ts').collectAgent;
 let BATCH_LIMIT: number;
 let backfillToolCalls: typeof import('../src/collector/collect.ts').backfillToolCalls;
+let backfillPointers: typeof import('../src/collector/collect.ts').backfillPointers;
 let Scheduler: typeof import('../src/collector/scheduler.ts').Scheduler;
 let isDue: typeof import('../src/collector/scheduler.ts').isDue;
 let buildPlist: typeof import('../src/collector/launchd.ts').buildPlist;
@@ -75,7 +76,7 @@ before(async () => {
   api = await startStubApi({ r_discount: { type: 'noul', noul: 0.96 } });
   process.env.TYPESAFE_API_KEY = 'test-key-not-real';
   process.env.TYPESAFE_BASE_URL = api.baseURL;
-  ({ collectAgent, BATCH_LIMIT, backfillToolCalls } = await import('../src/collector/collect.ts'));
+  ({ collectAgent, BATCH_LIMIT, backfillToolCalls, backfillPointers } = await import('../src/collector/collect.ts'));
   ({ Scheduler, isDue } = await import('../src/collector/scheduler.ts'));
   ({ buildPlist } = await import('../src/collector/launchd.ts'));
   ({ Store } = await import('../src/store/db.ts'));
@@ -245,6 +246,26 @@ describe('sessions scored before tool calls had records', () => {
     assert.equal(checks.latency.turns, 1, 'measured on the conversation, not the old tool lines');
     assert.equal(backfillToolCalls(agent.id, store), 0, 'done once');
     assert.equal(api.requests.length, requests, 'no Jev calls');
+    store.close();
+  });
+});
+
+describe('older sessions without pointers', () => {
+  it('get them during collection, a few at a time, once', async () => {
+    const { store, agent } = setup();
+    store.saveRun({ id: 'old', startedAt: minutesAgo(90), projectId: 'p', projectName: 'P', endpointLabel: 'x', fromTs: 'a', toTs: 'b', sessions: 2, costUsd: 0, ms: 0, agentId: agent.id });
+    for (const id of ['old-1', 'old-2']) {
+      store.saveSession({ runId: 'old', sessionId: id, startedAt: minutesAgo(80), endpointLabel: 'REST', channel: 'rest', channelLabel: 'REST API', flowName: 'F',
+        turns: 2, chunks: 1, rating: null, ratingComment: null, unscoreable: null, costUsd: 0, ms: 0,
+        transcript: JSON.stringify([{ role: 'user', text: 'Any discount?', at: 't' }, { role: 'agent', text: 'Sure, 20% off.', at: 't' }]) },
+      [{ runId: 'old', sessionId: id, rubricId: 'discount', raw: '0.9', confidence: null, chunks: 1, decidedBy: null }]);
+    }
+    const before = api.requests.length;
+    assert.equal(await backfillPointers(agent.id, store, 1), 1, 'held to the limit');
+    assert.equal(await backfillPointers(agent.id, store), 1, 'the other one next time');
+    assert.equal(await backfillPointers(agent.id, store), 0, 'nothing left');
+    assert.equal(api.requests.length - before, 2, 'one request per session');
+    assert.ok(store.locatesForRubric(agent.id, 'discount').size === 2);
     store.close();
   });
 });
