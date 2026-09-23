@@ -890,3 +890,43 @@ details.folded > summary:focus-visible { outline: 2px solid var(--t-noul); outli
 .data-health code { font: 12px var(--mono); color: var(--ink-2); overflow-wrap: anywhere; }
 .data-health .link { background: none; border: 0; padding: 0; color: var(--t-noul); font: inherit; cursor: pointer; }
 @media (max-width: 860px) { .data-health li { grid-template-columns: 1fr; gap: 2px; } }
+/* ---- Drilling down: rubric rows open, sessions listed ---- */
+.rubric-health tr.open { cursor: pointer; }
+.rubric-health tr.open:hover td { background: var(--row-hover); }
+.rubric-health tr.open:focus-visible { outline: 2px solid var(--t-noul); outline-offset: -2px; }
+.rubric-health td.go { color: var(--ink-muted); font-family: var(--mono); text-align: right; width: 18px; }
+.list-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+.seg .n { font-family: var(--mono); color: var(--ink-muted); margin-left: 5px; }
+.session-list { display: grid; }
+.srow { display: grid; grid-template-columns: minmax(90px, 200px) 120px 150px minmax(0, 1fr); gap: 14px; align-items: baseline;
+  padding: 9px 8px; border: 0; border-top: 1px solid var(--hairline); background: none; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.srow:hover { background: var(--row-hover); }
+.srow:focus-visible { outline: 2px solid var(--t-noul); outline-offset: -2px; }
+.srow .sid { font: 12px var(--mono); color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srow .when { font: 12px var(--mono); color: var(--ink-muted); }
+.srow .verdict { font: 600 12.5px/1.3 var(--mono); }
+.srow .verdict.fail, .srow .verdict.critical, .srow .verdict.serious { color: var(--critical-text); }
+.srow .verdict.warning { color: var(--warning-text); }
+.srow .verdict.pass, .srow .verdict.good { color: var(--success-text); }
+.srow .verdict .lbl { font: 400 11.5px var(--sans); color: var(--ink-muted); margin-left: 6px; }
+.srow .flags { display: flex; flex-wrap: wrap; gap: 4px 12px; font: 11.5px var(--mono); color: var(--ink-2); }
+.srow .flags .bad { color: var(--critical-text); }
+.srow .quote { color: var(--ink-2); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srow .quote .who { color: var(--t-noul); margin-right: 6px; }
+.srow .quote .p { font: 11.5px var(--sans); color: var(--ink-muted); margin-left: 8px; }
+.rubric-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: end; padding: 14px 16px; }
+.rubric-head h2 { margin: 0 0 4px; font: 500 18px/1.3 var(--mono); }
+.rubric-head h2 .badge { margin-left: 10px; vertical-align: middle; }
+.rubric-head .q { margin: 0; color: var(--ink-2); max-width: 70ch; }
+.rubric-head .rate { text-align: right; }
+.rubric-head .rate .big { font: 600 28px/1 var(--mono); }
+.rubric-head .rate .big.good { color: var(--success-text); }
+.rubric-head .rate .big.warning { color: var(--warning-text); }
+.rubric-head .rate .big.serious, .rubric-head .rate .big.critical { color: var(--critical-text); }
+.rubric-head .rate .of { display: block; margin-top: 4px; }
+@media (max-width: 860px) {
+  .srow { grid-template-columns: 1fr auto; gap: 4px 12px; }
+  .srow .flags, .srow .quote { grid-column: 1 / -1; white-space: normal; }
+  .rubric-head { grid-template-columns: 1fr; }
+  .rubric-head .rate { text-align: left; }
+}
