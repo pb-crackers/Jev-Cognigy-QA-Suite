@@ -89,13 +89,25 @@ describe('health', () => {
     store.close();
   });
 
+  it('counts passes as sessions, not an average of scores', () => {
+    const { store, agent } = setup();
+    session(store, agent.id, '2026-09-23T09:00:00Z', { helped: '0.9' });
+    session(store, agent.id, '2026-09-23T10:00:00Z', { helped: '0.6' });
+    session(store, agent.id, '2026-09-23T11:00:00Z', { helped: '0.1' });
+    const helped = computeHealth(agent, rubrics, store, '24h', NOW).rubrics.find((r) => r.rubricId === 'helped')!;
+    assert.deepEqual([helped.passed, helped.answered], [2, 3], 'the mean would be 0.53; two of three passed');
+    assert.equal(helped.passRate, 2 / 3);
+    store.close();
+  });
+
   it('reports a daily trend, per-rubric pass rates and traced sessions', () => {
     const { store, agent } = setup();
     session(store, agent.id, '2026-09-21T10:00:00Z', { helped: '0' });
     session(store, agent.id, '2026-09-22T10:00:00Z', { helped: '1' }, { coverage: 'full' });
     const result = computeHealth(agent, rubrics, store, '7d', NOW);
     assert.deepEqual(result.trend.map((point) => [point.day, point.health]), [['2026-09-21', 0], ['2026-09-22', 1]]);
-    assert.equal(result.rubrics.find((r) => r.rubricId === 'helped')!.passRate, 0.5);
+    const helped = result.rubrics.find((r) => r.rubricId === 'helped')!;
+    assert.deepEqual([helped.passed, helped.answered, helped.passRate], [1, 2, 0.5]);
     assert.equal(result.traced, 1);
     store.close();
   });
