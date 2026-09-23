@@ -68,6 +68,41 @@ export interface Rubric {
    * the logged request.
    */
   notes?: Partial<Record<Modality, string>>;
+
+  /**
+   * Where the rubric came from. Library rubrics ship with the tool and apply to
+   * every agent; custom ones are written by the user and are off for an agent
+   * until switched on.
+   */
+  origin?: 'library' | 'custom';
+
+  /**
+   * `quality` rubrics say how a conversation could be better. `alert` rubrics
+   * say something happened that someone needs to know about now. An alert
+   * rubric is a yes/no question where yes means the event happened.
+   */
+  kind?: 'quality' | 'alert';
+
+  /**
+   * When an alert rubric fires: at `threshold` hits within one `window`,
+   * bucketed on when the conversations happened rather than when they were
+   * collected. A threshold of 1 in a `session` window fires on the first hit.
+   */
+  alert?: { threshold: number; window: 'session' | 'hour' | 'day' };
+
+  /**
+   * What the author needs this rubric to catch, in plain words. Validity checks
+   * the wording against it; without it, "is this measuring what we need" has
+   * nothing to be checked against.
+   */
+  intent?: string;
+
+  /**
+   * Answerable only with the agent's logged LLM calls — its instructions as
+   * sent and its tool calls. Reported as not applicable on a session without
+   * full trace coverage rather than answered from a guess.
+   */
+  requiresTrace?: boolean;
 }
 
 /**
