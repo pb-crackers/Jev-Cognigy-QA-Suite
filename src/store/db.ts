@@ -521,13 +521,13 @@ export class Store {
       .run(agentId, sessionId, rubricId, JSON.stringify(located), new Date().toISOString());
   }
 
-  /** The stored answer, if it was asked about this same verdict. */
-  locateFor(agentId: string, sessionId: string, rubricId: string, raw: string): Located | undefined {
+  /** The stored answer, if it was asked about this same answer, question and conversation (see `locateKey`). */
+  locateFor(agentId: string, sessionId: string, rubricId: string, key: string): Located | undefined {
     const row = this.#db
       .prepare('SELECT json FROM locate WHERE agent_id = ? AND session_id = ? AND rubric_id = ?')
       .get(agentId, sessionId, rubricId) as { json: string } | undefined;
     const located = row ? (JSON.parse(row.json) as Located) : undefined;
-    return located?.raw === raw ? located : undefined;
+    return located?.key === key ? located : undefined;
   }
 
   /** Every stored answer for one rubric under an agent, by session. */

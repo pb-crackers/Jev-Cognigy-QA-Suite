@@ -20,10 +20,7 @@ import { computeDataHealth } from './health/data.ts';
 import { rubricSessions, sessionList, type SessionFilter, type VerdictFilter } from './health/drilldown.ts';
 import { executeRun } from './scoring/run.ts';
 import { placeToolCalls } from './traces/place.ts';
-import { reconstruct } from './traces/reconstruct.ts';
-import { locate } from './scoring/locate.ts';
-import { fixedState, withToolLines } from './scoring/state.ts';
-import { Ledger } from './metering.ts';
+import { locateSession } from './scoring/locate.ts';
 import type { Turn } from './cognigy/transcript.ts';
 import { checkCoverage } from './validity/coverage.ts';
 import { checkValidity, type ValidityReport } from './validity/validity.ts';
@@ -213,9 +210,11 @@ export async function handleWatchRoute(
       return send(200, await suggestAgents(api, projectId, store.agents())), true;
     }
 
-    const one = path.match(/^\/api\/agents\/([\w-]+)(?:\/(\w+)(?:\/(\w+))?)?$/);
+    // A rubric id is whatever its author chose, so the last segment takes any character but "/".
+    const one = path.match(/^\/api\/agents\/([\w-]+)(?:\/(\w+)(?:\/([^/]+))?)?$/);
     if (one) {
-      const [, id, action, sub] = one;
+      const [, id, action, rawSub] = one;
+      const sub = rawSub === undefined ? undefined : decodeURIComponent(rawSub);
       const agent = store.agent(id);
       if (!agent) return send(404, { error: `No agent "${id}"` }), true;
 
@@ -316,19 +315,8 @@ export async function handleWatchRoute(
       const owner = agentId ? store.agent(agentId) : undefined;
       const rubric = store.rubrics().find((candidate) => candidate.id === rubricId);
       if (!owner || !rubric) return send(404, { error: 'Say which agent and rubric: { "agentId": "…", "rubricId": "…" }' }), true;
-      const result = store.latestResults([sessionId]).find((row) => row.rubricId === rubric.id);
-      if (!result) return send(409, { error: `"${rubric.name}" has no answer for this session yet` }), true;
-      const cached = store.locateFor(owner.id, sessionId, rubric.id, result.raw);
-      if (cached) return send(200, { ...cached, cached: true }), true;
-      const read = store.sessionRows(owner.id, sessionId).find((row) => row.transcript !== '[]');
-      if (!read) return send(404, { error: 'No conversation stored for this session' }), true;
-      // The conversation as the grader read it: tool calls placed in, instructions and tools alongside.
-      const traces = store.tracesFor(owner.id, sessionId);
-      const trace = traces.length ? reconstruct(traces) : undefined;
-      const turns = (JSON.parse(read.transcript) as Turn[]).filter((turn) => !turn.tool);
-      const located = await locate(rubric, result.raw, withToolLines(turns, trace), fixedState(trace), new Ledger(), sessionId);
-      store.saveLocate(owner.id, sessionId, rubric.id, located);
-      return send(200, { ...located, cached: false }), true;
+      const outcome = await locateSession(store, owner, rubric, sessionId);
+      return send(outcome.status, 'located' in outcome ? outcome.located : { error: outcome.error }), true;
     }
 
     // ---- one session, merged across runs, for the drawer ----

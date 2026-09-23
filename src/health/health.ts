@@ -59,6 +59,8 @@ export interface AgentHealth {
   alerts: number;
   rubrics: RubricHealth[];
   failing: { sessionId: string; startedAt: string; composite: number; worst: string[] }[];
+  /** Every scored session's composite, 0–1, weighted as the health figure is. */
+  sessionScores: Record<string, number>;
   trend: { day: string; health: number; sessions: number }[];
 }
 
@@ -153,6 +155,7 @@ export function computeHealth(
     traced: sessions.filter((session) => session.traceCoverage === 'full').length,
     alerts: store.alerts({ agentId: agent.id, since }).length,
     rubrics: rubricHealth,
+    sessionScores: Object.fromEntries(composites.map((item) => [item.sessionId, item.composite])),
     failing: composites
       .filter((item) => item.composite < FAILING_BELOW)
       .sort((a, b) => a.composite - b.composite)

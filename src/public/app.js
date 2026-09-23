@@ -1220,6 +1220,8 @@ function turnRow(turn, preamble = false) {
 function renderTranscript(session) {
   const transcript = $('session-transcript');
   transcript.replaceChildren();
+  // Which session is showing: an answer that arrives late checks this before marking anything.
+  transcript.dataset.sessionId = session.sessionId;
   // Sessions scored before tool calls had records carry them as lines in the transcript itself.
   const timeline = session.timeline ?? JSON.parse(session.transcript).map((turn) => ({ kind: 'turn', turn }));
   timeline.forEach((item, index) => {
@@ -1260,7 +1262,8 @@ function markMessage(message, rubric, confidence, passed) {
   row.classList.add('pointed');
   if (passed) row.classList.add('pass');
   const chip = el('span', 'score-chip');
-  chip.append(el('span', 'name', rubric.name), el('span', 'value', `confidence ${confidence.toFixed(2)}`));
+  chip.append(el('span', 'name', rubric.name));
+  if (confidence !== null) chip.append(el('span', 'value', `confidence ${confidence.toFixed(2)}`));
   const text = row.lastElementChild;
   text.prepend(chip, el('br'));
   row.scrollIntoView({ block: 'center' });
@@ -1286,6 +1289,8 @@ function pinnedRubric(session, rubric) {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ agentId: session.agentId, rubricId: rubric.id }),
   }).then((located) => {
+    // The drawer may have moved on to another session while Jev was answering.
+    if ($('session-transcript').dataset.sessionId !== session.sessionId) return;
     where.replaceChildren();
     if (located.message === null || located.turnIndex === null) {
       whereValue.textContent = located.message === null ? 'none' : `#${located.message}?`;
@@ -1293,7 +1298,7 @@ function pinnedRubric(session, rubric) {
       return;
     }
     whereValue.textContent = `#${located.message}`;
-    where.append(`confidence ${located.confidence.toFixed(2)} `);
+    if (located.confidence !== null) where.append(`confidence ${located.confidence.toFixed(2)} `);
     const row = markMessage(located.message, rubric, located.confidence, passed === true);
     if (row) {
       const jump = el('button', 'jump', 'Go to it');

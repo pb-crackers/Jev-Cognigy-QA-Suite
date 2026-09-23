@@ -5,6 +5,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { certaintyOf, rubricSessions, sessionList } from '../src/health/drilldown.ts';
+import { locateKey } from '../src/scoring/locate.ts';
 import { createAgent } from '../src/agents/service.ts';
 import { Store } from '../src/store/db.ts';
 import type { Rubric } from '../src/rubrics/model.ts';
@@ -58,16 +59,30 @@ describe("one rubric's sessions", () => {
     store.close();
   });
 
-  it('quotes the message behind the answer — only when it was found for this same answer', () => {
+  it('quotes the message behind the answer — only when it was found for this same answer and question', () => {
     const { store, agent, session } = setup();
     const transcript = [{ role: 'user', text: 'rates?' }, { role: 'agent', text: 'Roughly 6.1% today.' }];
     const id = session('2026-09-23T09:00:00Z', { quoted_rate: '0.86' }, { transcript });
-    store.saveLocate(agent.id, id, 'quoted_rate', { raw: '0.86', turnIndex: 1, message: 1, confidence: 0.94 });
+    store.saveLocate(agent.id, id, 'quoted_rate', { raw: '0.86', key: locateKey(rate, '0.86', transcript as never), turnIndex: 1, message: 1, confidence: 0.94 });
     const [row] = rubricSessions(agent, rate, store, '24h', 'all', NOW).sessions;
     assert.equal(row.located?.quote, 'Roughly 6.1% today.');
     assert.equal(row.located?.confidence, 0.94);
-    store.saveLocate(agent.id, id, 'quoted_rate', { raw: '0.40', turnIndex: 1, message: 1, confidence: 0.9 });
+    const edited = { ...rate, question: 'Did the agent give any rate figure?' };
+    assert.equal(rubricSessions(agent, edited, store, '24h', 'all', NOW).sessions[0].located, undefined, 'stale: the question changed');
+    store.saveLocate(agent.id, id, 'quoted_rate', { raw: '0.40', key: locateKey(rate, '0.40', transcript as never), turnIndex: 1, message: 1, confidence: 0.9 });
     assert.equal(rubricSessions(agent, rate, store, '24h', 'all', NOW).sessions[0].located, undefined, 'stale: asked about a different answer');
+    store.close();
+  });
+
+  it('says when a rubric reports answers without pass or fail', () => {
+    const { store, agent, session } = setup();
+    const topic: Rubric = { id: 'topic', name: 'Topic', question: 'What was it about?', type: 'choice', combine: 'last', weight: 0, enabled: true,
+      options: { rates: 'Rates', payments: 'Payments' }, origin: 'library' };
+    session('2026-09-23T09:00:00Z', { topic: 'rates' });
+    const result = rubricSessions(agent, topic, store, '24h', 'all', NOW);
+    assert.equal(result.hasVerdicts, false);
+    assert.equal(result.sessions[0].passed, null);
+    assert.equal(rubricSessions(agent, rate, store, '24h', 'all', NOW).hasVerdicts, false, 'nothing answered, nothing to judge');
     store.close();
   });
 });

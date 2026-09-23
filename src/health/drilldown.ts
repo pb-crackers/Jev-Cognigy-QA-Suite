@@ -9,12 +9,12 @@
 import { agentRubrics, type Agent } from '../agents/model.ts';
 import type { SessionChecks } from '../checks/exact.ts';
 import type { Rubric } from '../rubrics/model.ts';
-import { verdictText, type Located } from '../scoring/locate.ts';
+import { locateKey, verdictText, type Located } from '../scoring/locate.ts';
 import type { Store } from '../store/db.ts';
 import { scoreSessions, type ScoredResult } from '../store/score.ts';
-import { PASS_AT, WINDOW_DAYS, type HealthWindow } from './health.ts';
+import { computeHealth, PASS_AT, WINDOW_DAYS, type HealthWindow } from './health.ts';
 
-type DrillStore = Pick<Store, 'agentSessions' | 'latestResults' | 'locatesForRubric'>;
+type DrillStore = Pick<Store, 'agentSessions' | 'latestResults' | 'locatesForRubric' | 'sessionRows' | 'validityReports' | 'alerts'>;
 
 export type SessionFilter = 'all' | 'rubric_failed' | 'call_failed' | 'not_scored';
 export type VerdictFilter = 'failed' | 'passed' | 'all';
@@ -69,10 +69,13 @@ export function sessionList(
   const own = agentRubrics(agent, rubrics);
   const rows = store.agentSessions(agent.id, since(window, now));
   const scored = scoreSessions(rows, store.latestResults(rows.map((row) => row.sessionId)), own);
-  const items: SessionListItem[] = scored.map(({ session, results, composite }) => ({
+  // Scored as the health figure scores them — weight × validity — so a session's
+  // number here is the one health counted.
+  const scores = computeHealth(agent, rubrics, store, window, now).sessionScores;
+  const items: SessionListItem[] = scored.map(({ session, results }) => ({
     sessionId: session.sessionId,
     startedAt: session.startedAt,
-    ...(composite !== undefined ? { score: composite / 5 } : {}),
+    ...(scores[session.sessionId] !== undefined ? { score: scores[session.sessionId] } : {}),
     failedRubrics: own.filter((rubric) => passes(results.get(rubric.id)) === false).map((rubric) => ({ id: rubric.id, name: rubric.name })),
     failedCalls: session.checks ? (JSON.parse(session.checks) as SessionChecks).failedCalls : 0,
     error: session.error ?? null,
@@ -90,7 +93,7 @@ export function sessionList(
 
 export function rubricSessions(
   agent: Agent, rubric: Rubric, store: DrillStore, window: HealthWindow, show: VerdictFilter, now = new Date(),
-): { counts: Record<VerdictFilter, number>; sessions: RubricSession[] } {
+): { counts: Record<VerdictFilter, number>; sessions: RubricSession[]; hasVerdicts: boolean } {
   const rows = store.agentSessions(agent.id, since(window, now));
   const scored = scoreSessions(rows, store.latestResults(rows.map((row) => row.sessionId)), [rubric]);
   const located = store.locatesForRubric(agent.id, rubric.id);
@@ -99,11 +102,14 @@ export function rubricSessions(
     const result = results.get(rubric.id);
     if (!result) continue;
     const raw = String(result.raw);
-    const pointer = located.get(session.sessionId);
+    // A failed attempt may not have read the conversation; quote from the last one that did.
+    const transcript = session.transcript !== '[]' ? session.transcript
+      : store.sessionRows(agent.id, session.sessionId).find((row) => row.transcript !== '[]')?.transcript ?? '[]';
+    const turns = JSON.parse(transcript) as { role: string; text: string; tool?: string }[];
+    const stored = located.get(session.sessionId);
+    const pointer = stored?.key === locateKey(rubric, raw, turns.filter((turn) => !turn.tool) as never) ? stored : undefined;
     // Agent messages are numbered the same with or without tool lines, so the quote is found by number.
-    const agentTurns = pointer?.raw === raw && pointer.turnIndex !== null
-      ? (JSON.parse(session.transcript) as { role: string; text: string }[]).filter((turn) => turn.role === 'agent')
-      : undefined;
+    const agentTurns = pointer && pointer.turnIndex !== null ? turns.filter((turn) => turn.role === 'agent') : undefined;
     items.push({
       sessionId: session.sessionId,
       startedAt: session.startedAt,
@@ -111,7 +117,7 @@ export function rubricSessions(
       answer: verdictText(rubric, raw),
       passed: passes(result),
       certainty: certaintyOf(rubric, result),
-      ...(pointer?.raw === raw ? { located: { ...pointer, ...(agentTurns ? { quote: agentTurns[pointer.message! - 1]?.text } : {}) } } : {}),
+      ...(pointer ? { located: { ...pointer, ...(agentTurns ? { quote: agentTurns[pointer.message! - 1]?.text } : {}) } } : {}),
     });
   }
   // Failures first, then newest: the order you'd read them in.
@@ -122,5 +128,6 @@ export function rubricSessions(
     all: items.length,
   };
   const keep = show === 'all' ? () => true : show === 'failed' ? (item: RubricSession) => item.passed === false : (item: RubricSession) => item.passed === true;
-  return { counts, sessions: items.filter(keep) };
+  // A choice rubric whose options carry no pass or fail reports answers only.
+  return { counts, sessions: items.filter(keep), hasVerdicts: items.some((item) => item.passed !== null) };
 }
