@@ -7,30 +7,41 @@
  * and pieced back together by `sessionId` and `inputId`.
  */
 
+/**
+ * As received. Every field is optional in practice — the one imported relay
+ * payload lacks half of these — so nothing here is read directly: `normalise`
+ * turns it into an `LlmCall` and reports anything shaped unexpectedly.
+ */
 export interface TracePayload {
   meta: {
     timestamp: string;
     sessionId: string;
     inputId?: string;
+    traceId?: string;
     userId?: string;
     projectId?: string;
     URLToken?: string;
     requestType?: string;
     status?: string;
+    streamed?: boolean;
   };
   request?: {
     body?: {
       messages?: TraceMessage[];
       tools?: TraceTool[];
       model?: string;
+      tool_choice?: unknown;
+      parallel_tool_calls?: boolean;
     };
     baseParams?: { model?: string; providerType?: string };
   };
   response?: {
     result?: string;
+    provider?: string;
     finishReason?: string;
     toolCalls?: TraceToolCall[];
     tokenUsage?: { inputTokens?: number; outputTokens?: number };
+    lastChunk?: { created?: number; model?: string };
   };
 }
 

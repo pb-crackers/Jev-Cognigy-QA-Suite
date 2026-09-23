@@ -10,17 +10,24 @@
  * side.
  */
 import type { Turn } from '../cognigy/transcript.ts';
-import type { SessionTrace } from '../traces/reconstruct.ts';
+import type { SessionTrace, ToolCallRecord } from '../traces/reconstruct.ts';
+import { placeToolCalls } from '../traces/place.ts';
+import type { ToolDefinition } from '../traces/normalise.ts';
 import { estimateTokens } from './chunk.ts';
 
 /** Roughly 11k tokens: room for a long prompt without crowding out the conversation. */
 export const MAX_INSTRUCTION_CHARS = 40_000;
-/** A tool's arguments or result, trimmed — the grader needs the gist, not a payload. */
-export const MAX_TOOL_DETAIL_CHARS = 500;
+/**
+ * A tool's arguments or result, trimmed with a visible marker. Long enough for a
+ * knowledge-search result's substance (they run to 4.5k characters), short
+ * enough that a busy session still fits Jev's 32k-token state.
+ */
+export const MAX_TOOL_DETAIL_CHARS = 2_000;
 
 export interface FixedState {
   instructions?: string;
-  tools?: { name: string; description: string }[];
+  /** With each tool's parameter schema, so arguments can be judged against it. */
+  tools?: ToolDefinition[];
 }
 
 function trim(text: string, max: number): string {
@@ -40,54 +47,21 @@ export function fixedTokens(fixed: FixedState): number {
   return fixed.instructions || fixed.tools ? estimateTokens(JSON.stringify(fixed)) : 0;
 }
 
-function toolLine(event: SessionTrace['events'][number]): Turn {
-  const detail = trim(event.detail.trim(), MAX_TOOL_DETAIL_CHARS);
-  return {
-    role: 'system',
-    text: event.kind === 'call' ? `[tool call ${event.name} ${detail}]` : `[tool result ${event.name}: ${detail}]`,
-    at: event.at,
-    inputId: event.inputId ?? undefined,
-    tool: event.kind,
-  };
+function toolLines(call: ToolCallRecord): Turn[] {
+  const base = { role: 'system' as const, inputId: call.inputId };
+  const lines: Turn[] = [{ ...base, text: `[tool call ${call.name} ${trim(call.argsRaw.trim(), MAX_TOOL_DETAIL_CHARS)}]`, at: call.calledAt ?? '', tool: 'call' }];
+  if (call.result !== undefined) {
+    lines.push({ ...base, text: `[tool result ${call.name}: ${trim(call.result.trim(), MAX_TOOL_DETAIL_CHARS)}]`, at: call.resultAt ?? '', tool: 'result' });
+  }
+  return lines;
 }
 
 /**
- * The transcript with tool calls written in where they happened.
- *
- * Anchored on `inputId`, not timestamps: the trace and the transcript come from
- * different parts of the platform, so their clocks need not agree, but both
- * name the input. A call goes just before the agent's reply to that input; one
- * with no reply goes after the input's last line.
+ * The transcript with tool calls written in where they happened, as the grader
+ * reads it. Placement is shared with the session view — see `placeToolCalls`.
  */
 export function withToolLines(turns: Turn[], trace: SessionTrace | undefined): Turn[] {
-  if (!trace || trace.events.length === 0) return turns;
-  const pending = new Map<string, Turn[]>();
-  const orphans: Turn[] = [];
-  for (const event of trace.events) {
-    if (!event.inputId) {
-      orphans.push(toolLine(event));
-      continue;
-    }
-    const list = pending.get(event.inputId) ?? [];
-    list.push(toolLine(event));
-    pending.set(event.inputId, list);
-  }
-
-  const out: Turn[] = [];
-  for (const turn of turns) {
-    if (turn.role === 'agent' && turn.inputId && pending.has(turn.inputId)) {
-      out.push(...pending.get(turn.inputId)!);
-      pending.delete(turn.inputId);
-    }
-    out.push(turn);
-  }
-  for (const [inputId, lines] of pending) {
-    let at = -1;
-    out.forEach((turn, index) => {
-      if (turn.inputId === inputId) at = index;
-    });
-    if (at === -1) out.push(...lines);
-    else out.splice(at + 1, 0, ...lines);
-  }
-  return [...out, ...orphans];
+  if (!trace || trace.toolCalls.length === 0) return turns;
+  return placeToolCalls(turns, trace.toolCalls).flatMap((item) =>
+    item.kind === 'turn' ? [item.turn] : item.calls.flatMap(toolLines));
 }
