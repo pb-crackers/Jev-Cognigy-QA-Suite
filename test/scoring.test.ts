@@ -247,6 +247,77 @@ describe('a scoring run', () => {
     assert.equal(unscoped.instructions.note, undefined, 'no modality, so no modality note');
   });
 
+  it('asks an agent run only the rubrics a session is missing', async () => {
+    const store = new Store(':memory:');
+    const rubrics: Rubric[] = [
+      { id: 'a', name: 'A', question: 'A?', type: 'boolean', combine: 'last', weight: 1, enabled: true },
+      { id: 'b', name: 'B', question: 'B?', type: 'boolean', combine: 'last', weight: 1, enabled: true },
+    ];
+    const base = { projectId: 'p', projectName: 'P', from: 'a', to: 'b', limit: 1, skipScored: true };
+
+    // An ad-hoc run answers rubric a only.
+    await executeRun({ ...base, rubricIds: ['a'] }, { odata: fakeOdata(SHORT), store, rubrics });
+    // The agent run wants a and b: only b is missing, so only b is asked.
+    const before = api.requests.length;
+    const outcome = await executeRun(
+      { ...base, rubricIds: ['a', 'b'], skipMode: 'rubric', agentId: 'summit' },
+      { odata: fakeOdata(SHORT), store, rubrics },
+    );
+    assert.equal(api.requests.length - before, 1);
+    assert.deepEqual(Object.keys(api.requests.at(-1)!.questions), ['r_b']);
+    assert.equal(outcome.scored.length, 1);
+
+    // Asked again, nothing is missing and nothing is sent.
+    const again = api.requests.length;
+    await executeRun({ ...base, rubricIds: ['a', 'b'], skipMode: 'rubric' }, { odata: fakeOdata(SHORT), store, rubrics });
+    assert.equal(api.requests.length, again);
+    store.close();
+  });
+
+  it('re-scores a session in full once it has grown since it was scored', async () => {
+    const store = new Store(':memory:');
+    const rubrics: Rubric[] = [
+      { id: 'a', name: 'A', question: 'A?', type: 'boolean', combine: 'last', weight: 1, enabled: true },
+    ];
+    const base = { projectId: 'p', projectName: 'P', from: 'a', to: 'b', limit: 1, skipScored: true, skipMode: 'rubric' as const };
+    await executeRun(base, { odata: fakeOdata(SHORT), store, rubrics });
+
+    const grown = fakeOdata(SHORT);
+    const original = grown.sessions.bind(grown);
+    grown.sessions = async (...args: Parameters<typeof original>) =>
+      (await original(...args)).map((session) => ({ ...session, lastAt: '2026-09-19T09:00:00.000Z' }));
+    const before = api.requests.length;
+    await executeRun(base, { odata: grown, store, rubrics });
+    assert.equal(api.requests.length - before, 1, 'a grown session is asked again');
+    store.close();
+  });
+
+  it('defers a session still in progress instead of scoring it half-finished', async () => {
+    const store = new Store(':memory:');
+    const before = api.requests.length;
+    const outcome = await executeRun(
+      { projectId: 'p', projectName: 'P', from: 'a', to: 'b', limit: 1, skipScored: false,
+        settledBefore: '2026-09-18T10:00:00.000Z' },
+      { odata: fakeOdata(SHORT), store, rubrics: DEFAULT_RUBRICS },
+    );
+    assert.equal(api.requests.length, before, 'nothing sent for an unsettled session');
+    assert.equal(outcome.deferred.length, 1);
+    assert.equal(outcome.scored.length, 0);
+    store.close();
+  });
+
+  it('records the agent on the run and the session\'s last record time', async () => {
+    const store = new Store(':memory:');
+    const { run } = await executeRun(
+      { projectId: 'p', projectName: 'P', from: 'a', to: 'b', limit: 1, skipScored: false, agentId: 'summit', label: 'Summit' },
+      { odata: fakeOdata(SHORT), store, rubrics: DEFAULT_RUBRICS },
+    );
+    assert.equal(store.runs()[0].agentId, 'summit');
+    assert.equal(store.runs()[0].endpointLabel, 'Summit');
+    assert.equal(store.sessionsForRun(run.id)[0].lastAt, '2026-09-18T10:10:00.000Z');
+    store.close();
+  });
+
   it('refuses to run with no rubrics enabled', async () => {
     const store = new Store(':memory:');
     await assert.rejects(
