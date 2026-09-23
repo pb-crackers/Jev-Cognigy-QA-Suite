@@ -17,6 +17,7 @@ import { collectAgent, type CollectReport } from './collector/collect.ts';
 import type { Scheduler } from './collector/scheduler.ts';
 import { computeHealth, WINDOW_DAYS, type HealthWindow } from './health/health.ts';
 import { computeDataHealth } from './health/data.ts';
+import { rubricSessions, sessionList, type SessionFilter, type VerdictFilter } from './health/drilldown.ts';
 import { executeRun } from './scoring/run.ts';
 import { placeToolCalls } from './traces/place.ts';
 import type { Turn } from './cognigy/transcript.ts';
@@ -265,6 +266,20 @@ export async function handleWatchRoute(
       }
       if (action === 'logging' && method === 'DELETE') {
         return send(200, (await uninstallLogging(agent, api, store)).report), true;
+      }
+      if (action === 'sessions' && method === 'GET') {
+        const show = (url.searchParams.get('show') ?? 'all') as SessionFilter;
+        if (!['all', 'rubric_failed', 'call_failed', 'not_scored'].includes(show)) return send(400, { error: 'show must be all, rubric_failed, call_failed or not_scored' }), true;
+        return send(200, sessionList(agent, store.rubrics(), store, asWindow(url.searchParams.get('window')), show)), true;
+      }
+      if (action === 'rubrics' && sub && method === 'GET') {
+        const rubric = store.rubrics().find((candidate) => candidate.id === sub);
+        if (!rubric) return send(404, { error: 'No such rubric' }), true;
+        const show = (url.searchParams.get('show') ?? 'failed') as VerdictFilter;
+        if (!['failed', 'passed', 'all'].includes(show)) return send(400, { error: 'show must be failed, passed or all' }), true;
+        const window = asWindow(url.searchParams.get('window'));
+        const health = computeHealth(agent, store.rubrics(), store, window).rubrics.find((entry) => entry.rubricId === rubric.id);
+        return send(200, { rubric, health: health ?? null, ...rubricSessions(agent, rubric, store, window, show) }), true;
       }
       // Scores one failed session now, however many times it has failed before.
       if (action === 'retry' && method === 'POST') {
