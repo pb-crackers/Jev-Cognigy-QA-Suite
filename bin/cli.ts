@@ -40,6 +40,7 @@ import { computeHealth, WINDOW_DAYS, type HealthWindow } from '../src/health/hea
 import { checkCoverage } from '../src/validity/coverage.ts';
 import { checkValidity } from '../src/validity/validity.ts';
 import { importTraces } from '../src/traces/receiver.ts';
+import { computeDataHealth } from '../src/health/data.ts';
 import { cast, endpointBase, personasFor, restEndpoint, simulate } from '../src/demo/simulate.ts';
 
 // Load .env ourselves so every command works as a bare invocation from any
@@ -550,7 +551,9 @@ async function agentCommand(
       return out(await collectAgent(id, { api, odata, store }));
     }
     if (action === 'health') {
-      return out(computeHealth(need(), store.rubrics(), store, asWindow(flags.window)));
+      const agent = need();
+      const window = asWindow(flags.window);
+      return out({ ...computeHealth(agent, store.rubrics(), store, window), data: computeDataHealth(agent.id, store, window) });
     }
     if (action === 'logging') {
       const agent = need();

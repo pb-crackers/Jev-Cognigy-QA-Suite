@@ -311,6 +311,13 @@ An alert is a **boolean** question where *yes means the event happened*, plus a 
 figure is indicative, do not present "84%" as a health score. Quote the interval. Mention how
 much rests on checked rubrics; run `jev-cognigy-qa validity` if little does.
 
+It also returns `data`: whether the figure can be trusted. `data.problems` counts sessions
+that couldn't be scored (`failed`, with the latest reasons; each is retried up to three
+times), payloads that arrived in a new shape (`drift.paths`), and transcripts missing turns
+the logs know about (`gaps`). Report any of these before quoting health. `data.logged` says
+how many sessions have their LLM calls logged; `data.failedCalls` counts tool calls that
+failed an exact check — that is the agent, not the data.
+
 ### The agent's own instructions
 
 `agent logging <id>` shows every AI Agent and LLM Prompt node the agent's traffic reaches,
@@ -325,6 +332,14 @@ up; do not try to create one.
 Rubrics marked `requiresTrace` (off_instruction, figures_without_tool, invented_tool_arguments,
 claimed_action_without_tool) are only asked on conversations where every LLM call was logged.
 Elsewhere they are not applicable, and that is not a failure.
+
+With logging on, every tool call is kept as a record and checked exactly, with no model:
+arguments valid JSON, the tool exists, arguments match the tool's own schema, the tool
+accepted the call (not `status: incomplete`, an `error`, or `ok: false`), a result came back,
+and it isn't a repeat of an earlier identical call. Each check is `pass`, `fail` or
+`unchecked` — unchecked is not a pass. `GET /api/sessions/<id>?agentId=<agent>` returns
+`toolCalls` (the records with their checks) and `timeline` (the conversation with each
+input's calls placed where they happened, as the grader read them).
 
 ### Is a rubric any good?
 
